@@ -223,6 +223,15 @@ assert.ok(diaryAuto, 'diary write creates an automatic checkpoint')
 assert.equal(diaryAuto.trigger.kind, 'diary')
 await autoManager.dispose()
 
+const withRoles = await createAdapter({
+  id: 'fish-roles',
+  displayName: '自定义触发',
+  adapter: 'file',
+  location: sourceRoot,
+  options: { preset: 'dsh-fish', autoCheckpointRoles: ['memory', 'bogus'] },
+}, {}, {})
+assert.deepEqual((await withRoles.describe()).autoCheckpointRoles, ['memory'], 'explicit trigger roles are honored and filtered')
+
 const generic = await createAdapter({ id: 'generic-md', displayName: '通用 md', adapter: 'file', location: genericRoot }, {}, {})
 const genericDiary = await generic.readDiary()
 assert.equal(genericDiary.items.length, 1)

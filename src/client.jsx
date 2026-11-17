@@ -120,8 +120,22 @@ function FishKeeperPage(props) {
               type="button"
               role="tab"
               aria-selected={tab === id}
+              tabIndex={tab === id ? 0 : -1}
               className={`fk-tab ${tab === id ? 'is-active' : ''}`}
               onClick={() => setTab(id)}
+              onKeyDown={event => {
+                if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+                event.preventDefault()
+                const current = TABS.findIndex(([tabId]) => tabId === id)
+                const next = event.key === 'Home'
+                  ? 0
+                  : event.key === 'End'
+                    ? TABS.length - 1
+                    : (current + (event.key === 'ArrowRight' ? 1 : -1) + TABS.length) % TABS.length
+                setTab(TABS[next][0])
+                const buttons = [...event.currentTarget.parentElement.querySelectorAll('[role="tab"]')]
+                buttons[next]?.focus()
+              }}
             >
               {t(key)}
             </button>
@@ -775,13 +789,13 @@ function DoctorTab({ t }) {
   const copy = async () => {
     if (!report) return
     const lines = [
-      '# Fish Keeper environment check',
-      `- Generated: ${report.generatedAt}`,
-      `- Overall: ${report.overall}`,
+      `# ${t('doctor.reportTitle')}`,
+      `- ${t('doctor.generated')}: ${report.generatedAt}`,
+      `- ${t('doctor.overall')}: ${t(`status.${report.overall}`)}`,
       '',
-      '| Status | Check | Evidence | Suggested fix |',
+      `| ${t('doctor.overall')} | ${t('doctor.check')} | ${t('doctor.evidence')} | ${t('doctor.remediation')} |`,
       '|---|---|---|---|',
-      ...report.checks.map(check => `| ${check.status} | ${check.title} | ${check.evidence} | ${check.remediation ?? ''} |`),
+      ...report.checks.map(check => `| ${t(`status.${check.status}`)} | ${localizedDoctorField(t, check, 'title')} | ${localizedDoctorField(t, check, 'evidence')} | ${localizedDoctorField(t, check, 'remediation')} |`),
       '',
     ]
     try {
@@ -813,10 +827,10 @@ function DoctorTab({ t }) {
             <tbody>
               {report.checks.map(check => (
                 <tr key={check.id}>
-                  <td>{check.title}</td>
+                  <td>{localizedDoctorField(t, check, 'title')}</td>
                   <td><span className={`fk-status is-${check.status}`}>{t(`status.${check.status}`)}</span></td>
-                  <td className="fk-evidence">{check.evidence}</td>
-                  <td className="fk-evidence">{check.remediation ?? '—'}</td>
+                  <td className="fk-evidence">{localizedDoctorField(t, check, 'evidence')}</td>
+                  <td className="fk-evidence">{localizedDoctorField(t, check, 'remediation') || '—'}</td>
                 </tr>
               ))}
             </tbody>
@@ -892,9 +906,11 @@ function MigrationTab({ t, sources, notify }) {
     }
   }
 
-  const needsOverwriteConfirm = importMode === 'write' && Boolean(preflight?.plan?.target?.overwrite)
+  const needsOverwriteConfirm = (importMode === 'write' && Boolean(preflight?.plan?.target?.overwrite))
+    || (importMode === 'reference' && Boolean(preflight?.overwrite))
   const canImport = preflight?.verdict === 'ok'
-    && (importMode !== 'write' || (Boolean(targetSourceId) && (!needsOverwriteConfirm || overwriteConfirmed)))
+    && (importMode !== 'write' || Boolean(targetSourceId))
+    && (!needsOverwriteConfirm || overwriteConfirmed)
 
   const runImport = async () => {
     if (!preflight || preflight.verdict !== 'ok' || !canImport) return
@@ -990,7 +1006,7 @@ function MigrationTab({ t, sources, notify }) {
         {needsOverwriteConfirm && (
           <label className="fk-check fk-check-inline">
             <input type="checkbox" checked={overwriteConfirmed} onChange={event => setOverwriteConfirmed(event.target.checked)} />
-            <span>{t('migration.overwriteConfirm')}</span>
+            <span>{t(importMode === 'write' ? 'migration.overwriteConfirm' : 'migration.referenceOverwriteConfirm')}</span>
           </label>
         )}
         {preflight && (
@@ -1040,6 +1056,14 @@ function MigrationTab({ t, sources, notify }) {
 function SettingsTab({ t, notify }) {
   const [dataRoot, setDataRoot] = useState('')
   const [rows, setRows] = useState([])
+  const [retention, setRetention] = useState({
+    maxCheckpointsPerSource: 200,
+    maxAgeDays: 90,
+    maxBytesPerSource: 512 * 1024 * 1024,
+    maxFileBytes: 8 * 1024 * 1024,
+  })
+  const [http, setHttp] = useState({ timeoutMs: 3000, maxResponseBytes: 4 * 1024 * 1024 })
+  const [rules, setRules] = useState([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(undefined)
@@ -1051,6 +1075,9 @@ function SettingsTab({ t, notify }) {
       .then(result => {
         if (cancelled) return
         setDataRoot(result.dataRoot ?? '')
+        setRetention({ ...retention, ...(result.retention ?? {}) })
+        setHttp({ ...http, ...(result.http ?? {}) })
+        setRules(Array.isArray(result.rules) ? result.rules : [])
         setRows((result.sources ?? []).map((source, index) => ({
           key: `source-${index}-${source.id}`,
           id: source.id,
@@ -1089,6 +1116,29 @@ function SettingsTab({ t, notify }) {
     setRows(current => current.filter((_, rowIndex) => rowIndex !== index))
   }
 
+  const updateRule = (index, patch) => {
+    setSaved(false)
+    setRules(current => current.map((rule, ruleIndex) => (ruleIndex === index ? { ...rule, ...patch } : rule)))
+  }
+
+  const addRule = () => {
+    setSaved(false)
+    setRules(current => [...current, {
+      id: `custom.${Date.now().toString(36)}`,
+      category: 'custom',
+      severity: 'medium',
+      enabled: true,
+      kind: 'keyword',
+      keywords: [t('settings.newKeyword')],
+      mask: 'partial',
+    }])
+  }
+
+  const removeRule = index => {
+    setSaved(false)
+    setRules(current => current.filter((_, ruleIndex) => ruleIndex !== index))
+  }
+
   const save = async () => {
     setError(undefined)
     let sources
@@ -1116,9 +1166,27 @@ function SettingsTab({ t, notify }) {
       setError(validationError)
       return
     }
+    let retentionPayload
+    let httpPayload
+    try {
+      retentionPayload = {}
+      for (const key of ['maxCheckpointsPerSource', 'maxAgeDays', 'maxBytesPerSource', 'maxFileBytes']) {
+        retentionPayload[key] = positiveIntegerInput(retention[key], `${t('settings.retention')}: ${key}`)
+      }
+      httpPayload = {
+        timeoutMs: positiveIntegerInput(http.timeoutMs, `${t('settings.http')}: timeoutMs`),
+        maxResponseBytes: positiveIntegerInput(http.maxResponseBytes, `${t('settings.http')}: maxResponseBytes`),
+      }
+    } catch (validationError) {
+      setError(validationError)
+      return
+    }
     setSaving(true)
     try {
-      await api('/config/save', { method: 'POST', body: { sources } })
+      await api('/config/save', {
+        method: 'POST',
+        body: { dataRoot: dataRoot.trim(), sources, retention: retentionPayload, http: httpPayload, rules },
+      })
       setSaved(true)
       notify(t('settings.saved'))
     } catch (requestError) {
@@ -1136,16 +1204,51 @@ function SettingsTab({ t, notify }) {
       <section className="fk-card fk-form-card">
         <div className="fk-detail-head">
           <div>
-            <h2>{t('settings.title')}</h2>
+            <h2>{t('settings.consoleTitle')}</h2>
             <p className="fk-hint">{t('settings.hint')}</p>
           </div>
           <div className="fk-detail-actions">
-            <button type="button" className="fk-btn fk-btn-ghost" onClick={addRow}>{t('settings.add')}</button>
             <button type="button" className="fk-btn" disabled={saving} onClick={() => void save()}>{saving ? t('settings.saving') : t('settings.save')}</button>
           </div>
         </div>
-        <p className="fk-hint">{t('settings.dataRoot')}: <code className="fk-mono">{dataRoot}</code></p>
+        <div className="fk-form-row">
+          <label className="fk-field fk-field-wide">
+            <span>{t('settings.dataRoot')}</span>
+            <input className="fk-input" value={dataRoot} onChange={event => { setSaved(false); setDataRoot(event.target.value) }} />
+          </label>
+          <label className="fk-field">
+            <span>{t('settings.retentionMaxCheckpoints')}</span>
+            <input className="fk-input" inputMode="numeric" value={retention.maxCheckpointsPerSource} onChange={event => setRetention(current => ({ ...current, maxCheckpointsPerSource: event.target.value }))} />
+          </label>
+          <label className="fk-field">
+            <span>{t('settings.retentionMaxAgeDays')}</span>
+            <input className="fk-input" inputMode="numeric" value={retention.maxAgeDays} onChange={event => setRetention(current => ({ ...current, maxAgeDays: event.target.value }))} />
+          </label>
+          <label className="fk-field">
+            <span>{t('settings.retentionMaxBytes')}</span>
+            <input className="fk-input" inputMode="numeric" value={retention.maxBytesPerSource} onChange={event => setRetention(current => ({ ...current, maxBytesPerSource: event.target.value }))} />
+          </label>
+          <label className="fk-field">
+            <span>{t('settings.retentionMaxFileBytes')}</span>
+            <input className="fk-input" inputMode="numeric" value={retention.maxFileBytes} onChange={event => setRetention(current => ({ ...current, maxFileBytes: event.target.value }))} />
+          </label>
+          <label className="fk-field">
+            <span>{t('settings.httpTimeout')}</span>
+            <input className="fk-input" inputMode="numeric" value={http.timeoutMs} onChange={event => setHttp(current => ({ ...current, timeoutMs: event.target.value }))} />
+          </label>
+          <label className="fk-field">
+            <span>{t('settings.httpMaxResponse')}</span>
+            <input className="fk-input" inputMode="numeric" value={http.maxResponseBytes} onChange={event => setHttp(current => ({ ...current, maxResponseBytes: event.target.value }))} />
+          </label>
+        </div>
+        <p className="fk-hint">{t('settings.dataRootHint')}</p>
         {saved && <p className="fk-success">{t('settings.reloadHint')}</p>}
+        <div className="fk-detail-head">
+          <h2>{t('settings.title')}</h2>
+          <div className="fk-detail-actions">
+            <button type="button" className="fk-btn fk-btn-ghost" onClick={addRow}>{t('settings.add')}</button>
+          </div>
+        </div>
         {rows.length === 0 && <p className="fk-hint">{t('settings.empty')}</p>}
         <div className="fk-source-list">
           {rows.map((row, index) => {
@@ -1156,6 +1259,9 @@ function SettingsTab({ t, notify }) {
               parsed = undefined
             }
             const preset = parsed && typeof parsed === 'object' && (parsed.preset === 'fishtank' || parsed.preset === 'dsh-fish') ? parsed.preset : ''
+            const autoRoles = Array.isArray(parsed?.autoCheckpointRoles)
+              ? parsed.autoCheckpointRoles
+              : (!preset ? ['diary', 'persona', 'memory'] : preset === 'dsh-fish' ? ['diary'] : [])
             const setPreset = value => {
               const base = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? { ...parsed } : {}
               if (value) base.preset = value
@@ -1168,6 +1274,14 @@ function SettingsTab({ t, notify }) {
               // cannot read it. Drop the stale preset when switching adapters.
               if (value === 'http' && base.preset === 'dsh-fish') delete base.preset
               update(index, { adapter: value, optionsText: JSON.stringify(base, null, 2) })
+            }
+            const setAutoRole = (role, checked) => {
+              const base = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? { ...parsed } : {}
+              const next = new Set(autoRoles)
+              if (checked) next.add(role)
+              else next.delete(role)
+              base.autoCheckpointRoles = [...next]
+              update(index, { optionsText: JSON.stringify(base, null, 2) })
             }
             return (
               <div key={row.key} className="fk-source-row">
@@ -1215,6 +1329,18 @@ function SettingsTab({ t, notify }) {
                     onChange={event => update(index, { optionsText: event.target.value })}
                   />
                 </label>
+                {row.adapter !== 'http' && (
+                  <div className="fk-form-row">
+                    <span className="fk-field-label">{t('settings.autoCheckpoints')}</span>
+                    {['diary', 'persona', 'memory'].map(role => (
+                      <label key={role} className="fk-check fk-check-inline">
+                        <input type="checkbox" checked={autoRoles.includes(role)} onChange={event => setAutoRole(role, event.target.checked)} />
+                        <span>{t(`checkpoints.role.${role}`)}</span>
+                      </label>
+                    ))}
+                    <span className="fk-hint">{t('settings.autoCheckpointsHint')}</span>
+                  </div>
+                )}
                 <p className="fk-hint">{t('settings.optionsHint')}</p>
               </div>
             )
@@ -1222,8 +1348,85 @@ function SettingsTab({ t, notify }) {
         </div>
         <p className="fk-hint">{t('settings.writeBackHint')}</p>
       </section>
+
+      <section className="fk-card fk-form-card">
+        <div className="fk-detail-head">
+          <div>
+            <h2>{t('settings.rulesTitle')}</h2>
+            <p className="fk-hint">{t('settings.rulesHint')}</p>
+          </div>
+          <div className="fk-detail-actions">
+            <button type="button" className="fk-btn fk-btn-ghost" onClick={addRule}>{t('settings.addRule')}</button>
+          </div>
+        </div>
+        {rules.length === 0 && <p className="fk-hint">{t('settings.rulesEmpty')}</p>}
+        <div className="fk-source-list">
+          {rules.map((rule, index) => (
+            <div key={`rule-${index}`} className="fk-rule-row">
+              <div className="fk-form-row">
+                <label className="fk-check fk-check-inline">
+                  <input type="checkbox" checked={rule.enabled !== false} onChange={event => updateRule(index, { enabled: event.target.checked })} />
+                  <span>{t('settings.ruleEnabled')}</span>
+                </label>
+                <label className="fk-field">
+                  <span>{t('settings.ruleId')}</span>
+                  <input className="fk-input" value={rule.id} onChange={event => updateRule(index, { id: event.target.value })} />
+                </label>
+                <label className="fk-field">
+                  <span>{t('settings.ruleCategory')}</span>
+                  <input className="fk-input" value={rule.category ?? ''} onChange={event => updateRule(index, { category: event.target.value })} />
+                </label>
+                <label className="fk-field">
+                  <span>{t('settings.ruleSeverity')}</span>
+                  <select className="fk-select" value={rule.severity ?? 'low'} onChange={event => updateRule(index, { severity: event.target.value })}>
+                    {['high', 'medium', 'low'].map(severity => <option key={severity} value={severity}>{t(`severity.${severity}`)}</option>)}
+                  </select>
+                </label>
+                <label className="fk-field">
+                  <span>{t('settings.ruleKind')}</span>
+                  <select
+                    className="fk-select"
+                    value={rule.kind ?? 'regex'}
+                    onChange={event => {
+                      const kind = event.target.value
+                      updateRule(index, kind === 'keyword'
+                        ? { kind, keywords: Array.isArray(rule.keywords) && rule.keywords.length > 0 ? rule.keywords : [t('settings.newKeyword')] }
+                        : { kind, pattern: rule.pattern ?? '' })
+                    }}
+                  >
+                    <option value="regex">{t('settings.ruleKindRegex')}</option>
+                    <option value="keyword">{t('settings.ruleKindKeyword')}</option>
+                  </select>
+                </label>
+                <button type="button" className="fk-btn fk-btn-ghost" onClick={() => removeRule(index)}>{t('settings.removeRule')}</button>
+              </div>
+              {rule.kind === 'keyword' ? (
+                <label className="fk-field">
+                  <span>{t('settings.ruleKeywords')}</span>
+                  <input
+                    className="fk-input"
+                    value={(rule.keywords ?? []).join(', ')}
+                    onChange={event => updateRule(index, { keywords: event.target.value.split(/[,，]/u).map(keyword => keyword.trim()).filter(Boolean) })}
+                  />
+                </label>
+              ) : (
+                <label className="fk-field">
+                  <span>{t('settings.rulePattern')}</span>
+                  <input className="fk-input fk-mono" value={rule.pattern ?? ''} onChange={event => updateRule(index, { pattern: event.target.value })} />
+                </label>
+              )}
+            </div>
+          ))}
+        </div>
+      </section>
     </div>
   )
+}
+
+function positiveIntegerInput(value, label) {
+  const number = Number(value)
+  if (!Number.isFinite(number) || number <= 0) throw new Error(`${label} > 0`)
+  return Math.trunc(number)
 }
 
 function RiskChips({ hits, t }) {
@@ -1273,16 +1476,41 @@ function Empty({ title, body, hint, action }) {
 }
 
 function Modal({ title, children, onClose, t }) {
+  const modalRef = useRef(undefined)
   useEffect(() => {
+    const previous = document.activeElement
+    const node = modalRef.current
+    const focusable = () => [...(node?.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])') ?? [])]
+      .filter(element => !element.disabled && element.getAttribute('aria-hidden') !== 'true')
+    const first = focusable()[0]
+    if (first) first.focus()
     const onKey = event => {
-      if (event.key === 'Escape') onClose()
+      if (event.key === 'Escape') {
+        onClose()
+        return
+      }
+      if (event.key !== 'Tab') return
+      const elements = focusable()
+      if (elements.length === 0) return
+      const firstElement = elements[0]
+      const lastElement = elements[elements.length - 1]
+      if (event.shiftKey && document.activeElement === firstElement) {
+        event.preventDefault()
+        lastElement.focus()
+      } else if (!event.shiftKey && document.activeElement === lastElement) {
+        event.preventDefault()
+        firstElement.focus()
+      }
     }
     document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      if (previous && typeof previous.focus === 'function') previous.focus()
+    }
   }, [onClose])
   return (
     <div className="fk-overlay" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}>
-      <div className="fk-modal" role="dialog" aria-modal="true" aria-label={title}>
+      <div className="fk-modal" ref={modalRef} role="dialog" aria-modal="true" aria-label={title}>
         <header className="fk-modal-head">
           <h2>{title}</h2>
           <button type="button" className="fk-icon-btn" aria-label={t('action.close')} onClick={onClose}>×</button>
@@ -1350,6 +1578,13 @@ function ruleLabel(t, ruleId) {
   return value === key ? ruleId : value
 }
 
+function localizedDoctorField(t, check, field) {
+  const key = check[`${field}Key`]
+  if (!key) return check[field] ?? ''
+  const value = t(key, check[`${field}Params`] ?? {})
+  return value === key ? (check[field] ?? '') : value
+}
+
 function eventTypeLabel(t, type) {
   const key = `eventType.${type}`
   const value = t(key)
@@ -1394,6 +1629,10 @@ const CSS = `
 }
 .fk-tab:hover { color: var(--dsw-alias-label-primary); }
 .fk-tab.is-active { color: var(--dsw-alias-brand-primary); border-bottom-color: var(--dsw-alias-brand-primary); }
+.fk-tab:focus-visible, .fk-btn:focus-visible, .fk-link:focus-visible, .fk-icon-btn:focus-visible, .fk-input:focus-visible, .fk-select:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 2px;
+}
 .fk-badge, .fk-chip, .fk-severity, .fk-status {
   display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 999px; padding: 1px 8px; font-size: 12px; line-height: 18px; white-space: nowrap;
@@ -1548,6 +1787,10 @@ const CSS = `
 .fk-source-list { display: flex; flex-direction: column; gap: 12px; margin-top: 8px; }
 .fk-source-row { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--dsw-alias-border-l1); border-radius: 10px; background: var(--dsw-alias-bg-base); }
 .fk-source-row .fk-input, .fk-source-row .fk-select { min-width: 120px; }
+.fk-rule-row { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--dsw-alias-border-l1); border-radius: 10px; background: var(--dsw-alias-bg-base); }
+.fk-rule-row .fk-input, .fk-rule-row .fk-select { min-width: 120px; }
+.fk-field-wide { flex: 2 1 320px; }
+.fk-field-label { color: var(--dsw-alias-label-secondary); font-size: 12px; align-self: center; }
 .fk-textarea { height: auto; min-height: 90px; resize: vertical; font-family: ui-monospace, monospace; font-size: 12px; }
 @media (max-width: 760px) {
   .fk-grid { grid-template-columns: 1fr; }

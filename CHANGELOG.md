@@ -11,6 +11,12 @@
 - 总览显示成长天数/阶段/轮数/最后对话时间；时间线显示事件类型、`verdict` 与事件所属天数/阶段。
 - `scripts/smoke-dsh-fish.mjs`：dsh-fish 日记、事件流、`home.json`、只读性与 dsh-fishtank 回归。
 - `scripts/smoke-real-dsh-fish.mjs`（`npm run test:real`）：可选的真实 `~/.dsh-fish` 复制目录端到端验证。
+- 设置页：控制台数据根目录、保留策略、HTTP 超时/响应上限、自动检查点角色。
+- 风险规则设置：启用/停用、严重度、类别、关键字/正则规则增删，后端校验并应用到时间线、脱敏与分享导出。
+- 渠道健康端点：`options.channels[].healthUrl`，2 秒超时、60 秒缓存、保留最后成功时间。
+- 环境自检：源目录可写性检查；标题/证据/修复建议 i18n；配置 schemaVersion。
+- 迁移：参考导入覆盖确认、`.previous-*` 备份与启动恢复；dsh-fish/fishtank 插件要求与已安装版本校验。
+- 文件匹配支持 `**` glob；ZIP 重复条目直接拒绝。
 
 ### 修复
 

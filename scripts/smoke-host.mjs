@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os'
 import { randomBytes } from 'node:crypto'
 import assert from 'node:assert/strict'
 import { createAdapter } from '../lib/sources.js'
-import { scanText } from '../lib/rules.js'
+import { DEFAULT_RULES, normalizeRules, scanText } from '../lib/rules.js'
+import { listMatchingFiles } from '../lib/util.js'
 import { CheckpointManager } from '../lib/checkpoints.js'
 
 const demo = new URL('../demo/fish-a', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/u, '$1')
@@ -32,6 +33,19 @@ const risky = diary.items.find(entry => entry.text.includes('13800138000'))
 const scan = scanText(risky.text)
 assert.ok(scan.hits.some(hit => hit.ruleId === 'pii.phone_cn'))
 assert.ok(scan.hits.some(hit => hit.ruleId === 'secret.api_key'))
+
+const customRules = normalizeRules([
+  { id: 'custom.smoke', category: 'custom', severity: 'high', enabled: true, kind: 'keyword', keywords: ['SMOKE-RULE'], mask: 'partial' },
+])
+assert.equal(normalizeRules(undefined).length, DEFAULT_RULES.length)
+const customScan = scanText('这里出现 SMOKE-RULE 词', customRules)
+assert.equal(customScan.hits[0]?.ruleId, 'custom.smoke')
+assert.throws(
+  () => normalizeRules([{ id: 'bad.regex', kind: 'regex', pattern: '(' }]),
+  error => error.code === 'fishkeeper/config-invalid',
+)
+const deepGlob = await listMatchingFiles(temp, '**/*.jsonl')
+assert.ok(deepGlob.some(file => file.startsWith('diary/')), `deep glob: ${deepGlob.join(', ')}`)
 
 const manager = new CheckpointManager({ dataRoot: join(temp, '.console'), source, describe: description, retention: { maxFileBytes: 8 * 1024 * 1024 } })
 await manager.init()

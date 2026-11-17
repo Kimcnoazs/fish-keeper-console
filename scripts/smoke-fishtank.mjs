@@ -21,12 +21,19 @@ const credentials = {
     return { kind: 'api-key', key: 'secret-token' }
   },
 }
+let editedConfig
 const ctx = {
   logger: console,
   fiber: { entry: { id: 'test-entry' } },
   get: name => {
     if (name === 'credentials') return credentials
-    if (name === 'configEditor') return { async edit() {} }
+    if (name === 'configEditor') {
+      return {
+        async edit(_entry, update) {
+          editedConfig = update({ schemaVersion: 1, sources: [] })
+        },
+      }
+    }
     return undefined
   },
 }
@@ -118,9 +125,46 @@ await assert.rejects(
   () => mismatched.saveSources({ sources: [{ id: 'bad id', displayName: 'x', adapter: 'file', location: 'y' }] }),
   error => error.code === 'fishkeeper/config-invalid',
 )
+
+const savedConfig = await mismatched.saveConfig({
+  dataRoot: join(temp, 'data-next'),
+  sources: [
+    { id: 'tank', displayName: '目标鱼', adapter: 'file', location: sourceRoot, enabled: true, options: { preset: 'fishtank', autoCheckpointRoles: ['persona'] } },
+  ],
+  retention: { maxCheckpointsPerSource: 12, maxAgeDays: 7, maxBytesPerSource: 1024 * 1024, maxFileBytes: 1024 * 1024 },
+  http: { timeoutMs: 1500, maxResponseBytes: 1024 * 1024 },
+  rules: [{ id: 'custom.config', category: 'custom', severity: 'low', enabled: true, kind: 'keyword', keywords: ['CONFIG-RULE'] }],
+})
+assert.equal(savedConfig.reloading, true)
+assert.equal(editedConfig.schemaVersion, 1)
+assert.equal(editedConfig.dataRoot, join(temp, 'data-next'))
+assert.equal(editedConfig.retention.maxCheckpointsPerSource, 12)
+assert.equal(editedConfig.http.timeoutMs, 1500)
+assert.equal(editedConfig.rules[0].id, 'custom.config')
+assert.deepEqual(editedConfig.sources[0].options.autoCheckpointRoles, ['persona'])
+await assert.rejects(
+  () => mismatched.saveConfig({ retention: { maxCheckpointsPerSource: 0 } }),
+  error => error.code === 'fishkeeper/config-invalid',
+)
+await assert.rejects(
+  () => mismatched.saveConfig({ rules: [{ id: 'bad.rule', kind: 'regex', pattern: '(' }] }),
+  error => error.code === 'fishkeeper/config-invalid',
+)
 await mismatched.dispose()
 
+let healthHits = 0
 const server = createServer((request, response) => {
+  if (request.url === '/health') {
+    healthHits += 1
+    response.writeHead(500, { 'content-type': 'application/json' })
+    response.end('{"error":"down"}')
+    return
+  }
+  if (request.url === '/healthy') {
+    response.writeHead(200, { 'content-type': 'application/json' })
+    response.end('{"ok":true}')
+    return
+  }
   if (request.headers.authorization !== 'Bearer secret-token') {
     response.writeHead(401, { 'content-type': 'application/json' })
     response.end('{"error":"unauthorized"}')
@@ -136,11 +180,25 @@ const httpSource = {
   displayName: 'HTTP 鱼',
   adapter: 'http',
   location: `http://127.0.0.1:${port}`,
-  options: { statusPath: '/state', diaryPath: '/state', eventsPath: '/events', credentialKey: 'fish/gateway', requireCredentials: true },
+  options: {
+    statusPath: '/state',
+    diaryPath: '/state',
+    eventsPath: '/events',
+    credentialKey: 'fish/gateway',
+    requireCredentials: true,
+    channels: [
+      { name: 'down', healthUrl: '/health' },
+      { name: 'up', healthUrl: '/healthy' },
+    ],
+  },
 }
 const authorized = await createAdapter(httpSource, {}, { credentials })
 const status = await authorized.readStatus()
 assert.equal(status.mood, '清醒')
+assert.equal(status.channels.find(channel => channel.channel === 'down')?.state, 'error')
+assert.equal(status.channels.find(channel => channel.channel === 'up')?.state, 'ok')
+await authorized.readStatus()
+assert.equal(healthHits, 1, 'channel health responses are cached for 60 seconds')
 const httpDiary = await authorized.readDiary()
 assert.equal(httpDiary.items[0].text, 'HTTP 日记')
 
