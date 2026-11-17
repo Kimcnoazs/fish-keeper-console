@@ -104,6 +104,7 @@ options:
 - `view().diary` 只返回最近 **3** 条，`view().whispers` 返回最近 **5** 条。
 - `view().history` 去掉了 `at`，因此 HTTP 模式无法用对话时间推断活跃时间；活跃时间回落到 `createdAt` 或最新日记日期。
 - **两个路由都没有鉴权**。若未来通过反向代理加鉴权，可在数据源 `options.credentialKey` 指向一个 `api-key` 凭据记录；Host 会以 `Authorization: Bearer <key>` 发出请求，401/403 会显示为“凭据缺失或失效”。
+- 渠道健康探测可配置 `options.channels[].healthUrl`（相对路径按 HTTP 源 base URL 解析）；Host 以 2 秒超时 GET，60 秒内复用结果，非 2xx/超时显示 `error`/`unknown` 并保留最后成功时间。健康端点应无需额外鉴权，或使用本机 loopback 网关。
 
 HTTP 预设配置：
 
