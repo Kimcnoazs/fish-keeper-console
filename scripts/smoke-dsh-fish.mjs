@@ -174,6 +174,24 @@ for (const [name, original] of originalWrites) fsp[name] = original
 assert.deepEqual(sourceWrites, [], 'no write primitive touched the dsh-fish source directory')
 assert.deepEqual(await hashTree(sourceRoot), beforeRead, 'runtime start/read/checkpoint/export did not modify the source')
 
+// dsh-fish creates a new diary file every day. A console that started before
+// midnight must pick it up without a plugin reload.
+const dynamicRuntime = new ConsoleRuntime(ctx, {
+  dataRoot: join(temp, 'data-dynamic'),
+  sources: [
+    { id: 'fish', displayName: '大肥鱼', adapter: 'file', location: sourceRoot, enabled: true, options: { preset: 'dsh-fish' } },
+  ],
+})
+await dynamicRuntime.start()
+await fsp.writeFile(join(sourceRoot, 'diary', '2026-11-12.md'), '新的一天，今天也写了一句。\n')
+const dynamicOverview = await dynamicRuntime.overview()
+assert.equal(dynamicOverview.sources[0].fish.latestDiary.text, '新的一天，今天也写了一句。')
+const dynamicTimeline = await dynamicRuntime.timeline({ limit: 100 })
+assert.equal(dynamicTimeline.items.filter(item => item.sourceId === 'fish' && item.kind === 'diary').length, 3)
+const dynamicCheckpoint = await dynamicRuntime.createCheckpoint('fish')
+assert.equal(dynamicCheckpoint.checkpoint.files, 5, 'new diary file is included in a checkpoint without a reload')
+await dynamicRuntime.dispose()
+
 const withSystem = await createAdapter({
   id: 'fish-system',
   displayName: '系统事件',
