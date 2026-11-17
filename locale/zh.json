@@ -134,6 +134,7 @@
   "doctor.evidence.sourceMissing": "缺失：{path}",
   "doctor.evidence.sourceWritable": "{path} 当前用户可写。",
   "doctor.evidence.sourceNotWritable": "{path} 当前用户不可写。",
+  "doctor.evidence.sourceReadOnly": "{path} 是 dsh-fish 只读预设，不要求可写。",
   "doctor.evidence.credentialMissing": "缺失：{path}",
   "doctor.evidence.credentialBroad": "模式 {mode} 宽于 0600。",
   "doctor.evidence.credentialPresent": "存在（{mode}）。",

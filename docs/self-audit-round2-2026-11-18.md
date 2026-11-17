@@ -15,7 +15,7 @@
 | 3 | FR-CP-01 自动触发可配置 | **已完成**：`options.autoCheckpointRoles` 可按源选择 `diary`/`persona`/`memory`，设置页提供复选；非法角色被过滤/拒绝。 | `lib/sources.js`、`lib/runtime.js`、`src/client.jsx`；`scripts/smoke-dsh-fish.mjs`、`scripts/smoke-fishtank.mjs` |
 | 4 | FR-MG-03 预检 DSH/鱼插件版本 | **部分完成**：导出包会为 `fishtank`/`dsh-fish` 写入插件要求；预检读取 profile 的 `node_modules/<pkg>/package.json` 版本并按 `range` 校验；DSH 版本仍只按包 manifest 声明检查。 | `lib/migrate.js` `exportPackage` / `readProfile` / `preflight` |
 | 5 | FR-MG-04 / AC-MG-05 事务化导入 | **改进完成**：参考导入在替换前把旧副本改名为 `.previous-*`，成功后删除；失败回滚；启动时 `recover()` 会把中断留下的 `.previous-*` 恢复为目标目录。写入目标也先确认覆盖并保留安全检查点。 | `lib/migrate.js` `importPackage` / `recover`；`lib/runtime.js` 启动恢复；`scripts/smoke-runtime.mjs` |
-| 6 | FR-DC-02 源目录可写性 | **已完成**：自检对每个文件源增加 `source.<id>.writable`；POSIX 用 `access(W_OK)`，Windows 显示 ACL 未知而不伪造结论。 | `lib/doctor.js`；`scripts/smoke-runtime.mjs` |
+| 6 | FR-DC-02 源目录可写性 | **已完成**：自检对每个文件源增加 `source.<id>.writable`；POSIX 用 `access(W_OK)`，Windows 显示 ACL 未知而不伪造结论；dsh-fish 只读预设不误报“不可写”。 | `lib/doctor.js`；`scripts/smoke-runtime.mjs` |
 | 7 | FR-X-02 自检正文 i18n | **已完成**：自检的标题、证据、修复建议均带 `titleKey`/`evidenceKey`/`remediationKey` 和参数；客户端中文化，复制报告也走同一套文案。 | `lib/doctor.js`、`src/client.jsx` DoctorTab、`locale/{zh,en}.json`；截图见下文 |
 | 8 | FR-X-04 键盘与焦点 | **已完成基础项**：标签页支持左右/Home/End，模态框有焦点陷阱与关闭后焦点恢复，输入/按钮有 `:focus-visible` 轮廓。未做完整的焦点顺序审计。 | `src/client.jsx` TABS / Modal / CSS |
 | 9 | FR-X-08 日志轮转/稳定错误码 | **未完成**：API 错误码稳定；日志仍走 Host logger，没有独立轮转文件。原因：项目没有自己的长期日志写入层，轮转应由 Host/部署负责；本轮不引入第二个日志系统。 | — |
@@ -37,6 +37,7 @@
 8. **设置页没有控制台级配置**：补 dataRoot、保留策略、HTTP 默认值、规则、触发角色。
 9. **迁移包没有 dsh-fish 插件要求**：现在导出会写入 `@ssamurias/dsh-fish` 要求，预检读取已安装版本并校验范围。
 10. **标签页/模态框键盘体验不足**：补方向键、焦点陷阱、焦点恢复、focus-visible。
+11. **只读 dsh-fish 源被自检误报为不可写**：自检现在识别 dsh-fish 只读预设，不可写时显示“只读预设，不要求可写”，不再拉低总体状态。
 
 ## 3. 验证
 

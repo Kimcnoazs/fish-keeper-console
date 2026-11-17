@@ -134,6 +134,7 @@
   "doctor.evidence.sourceMissing": "Missing: {path}",
   "doctor.evidence.sourceWritable": "{path} is writable by the current user.",
   "doctor.evidence.sourceNotWritable": "{path} is not writable by the current user.",
+  "doctor.evidence.sourceReadOnly": "{path} is read-only by the dsh-fish preset; writability is not required.",
   "doctor.evidence.credentialMissing": "Missing: {path}",
   "doctor.evidence.credentialBroad": "Mode {mode} is broader than 0600.",
   "doctor.evidence.credentialPresent": "Present ({mode}).",
