@@ -60,6 +60,7 @@ DSH 生态里的“养鱼”已经分成人格生长、渠道接入、状态持�
 | [功能需求单](./docs/requirements.zh-CN.md) | 背景、用户场景、边界、P0/P1/P2 需求、验收标准、NFR、里程碑 | 需求评审、贡献者、鱼插件作者 |
 | [技术方案](./docs/technical-design.zh-CN.md) | 架构、适配器 SDK、检查点与回滚算法、迁移包、Host API、安全、测试 | 实现者、代码评审者 |
 | [目标插件兼容笔记](./docs/compat-notes.md) | `dsh-fishtank` 与 `dsh-fish` 的真实数据布局、HTTP 端点、写回风险与样本 | 适配器维护者、集成者 |
+| [全面自检记录（2026-11-18）](./docs/self-audit-2026-11-18.md) | 文档声明与代码行为对照、已修复问题、真实数据与只读验证、仍未实现的差异 | 维护者、评审者 |
 
 建议阅读顺序：需求单 §1–§3（为什么做、做到什么程度）→ 技术方案 §1–§3（怎么做）→ 需求单 §7（怎么验收）。
 
@@ -113,7 +114,30 @@ DSH 生态里的“养鱼”已经分成人格生长、渠道接入、状态持�
 - **`fish.json` 写回需要先停鱼插件。** `dsh-fishtank` 在内存中防抖保存，运行中外部写入可能被下一次保存覆盖；写回后请重载鱼插件。
 - **`dsh-fishtank` 不会自动触发检查点。** 它的日记/人格/记忆都在同一个 `fish.json` 里，角色是 `status`；需要手动创建检查点，或把它作为普通文件源并显式声明可回滚文件。
 - **`dsh-fish` 源严格只读。** 预设声明 `home.json`、`events.jsonl` 与 `diary/*.md` 均不可回滚、不可写回；检查点只记录哈希，不复制正文。它不修改 dsh-fish 插件本身，也不改变 `diary.visible` 等插件设置。
+- **`dsh-fish` 自动检查点只跟随日记写入。** `events.jsonl` 是只追加的唯一可信源，每轮对话和 `meta` 记账都会追加；如果逐条建点，会在几小时内产生数百个只有哈希的检查点并挤掉基线。启动基线、手动检查点仍会记录 `events.jsonl` 的哈希，需要审计某个事件时请手动建点。
 - **自定义风险规则尚未提供 UI。** 当前使用 `lib/rules.js` 的默认客观规则集；主观话题规则默认关闭。
+- **环境自检的检查标题与证据仍为 Host 生成的英文。** 面板框架、状态和按钮已中文化；逐条检查正文的完整 i18n 尚未实现。
+- **设置页只编辑数据源。** `dataRoot`、保留策略、扫描上限、规则包、HTTP 超时仍通过 `cordis.patch.yml` 配置，未提供面板表单。
+
+## 自检结论（2026-11-18）
+
+完整对照见[全面自检记录](./docs/self-audit-2026-11-18.md)。这一轮修复了：
+
+- dsh-fish / dsh-fishtank 纯日期按本地日期解析（之前东八区会把日记显示成当天 08:00，概览“最近活动”甚至落到未来）。
+- dsh-fish 启动基线缺失、手动检查点可能为空。
+- dsh-fish 每个 `events.jsonl` 追加都生成自动检查点（真实数据 8 小时留下 200 个保留点）；现在自动点只跟随日记写入。
+- 只读降级实例仍会写检查点目录；现在只读实例只读 manifest。
+- 损坏的状态 JSON、无法解析的 JSONL 行不再被静默当成空数据。
+- 中文界面里的英文警告、原始事件类型、检查点角色/操作和常见错误消息。
+- 总览空状态入口、时间线空状态、检查点空差异、HTTP 源检查点入口等界面边界。
+
+**真实数据验证**：`C:/Users/admin/.dsh-fish` 复制目录上，概览为 day=3 / stage=1 / turns=35，时间线 326 条（4 日记 + 322 事件），日记按本地午夜排序；读取前后 45 个文件哈希一致。**只读验证**：`smoke-dsh-fish.mjs` 对写入口做了拦截探针，启动、读取、检查点、导出、回滚预检全程没有触碰源目录。
+
+界面前后对比（同一 `demo/dsh-fish` 数据、1280×900、浅色主题；前 = `main`，后 = 本分支）：
+
+| 概览 | 时间线 | 检查点 |
+|---|---|---|
+| [前](./docs/screenshots/self-audit/before-overview.png) / [后](./docs/screenshots/self-audit/after-overview.png) | [前](./docs/screenshots/self-audit/before-timeline.png) / [后](./docs/screenshots/self-audit/after-timeline.png) | [前](./docs/screenshots/self-audit/before-checkpoints.png) / [后](./docs/screenshots/self-audit/after-checkpoints.png) |
 
 ## 隐私
 
@@ -186,9 +210,10 @@ node scripts/smoke-watch.mjs     # 变更自动检查点与回滚
 node scripts/smoke-share.mjs     # 分享包剔除正文与凭据
 node scripts/smoke-fishtank.mjs  # dsh-fishtank 样本、写回、身份校验、HTTP 鉴权
 node scripts/smoke-dsh-fish.mjs  # dsh-fish 日记、事件流、home.json、只读与 fishtank 回归
+node scripts/smoke-real-dsh-fish.mjs  # 可选：对本机真实 ~/.dsh-fish 做复制目录端到端验证
 ```
 
-这些脚本使用临时目录与合成数据，不会写入真实鱼数据。
+这些脚本使用临时目录与合成数据，不会写入真实鱼数据。`smoke-real-dsh-fish.mjs` 会把真实目录复制到临时目录后读取，并对比复制目录的递归哈希；没有真实数据时直接跳过。也可运行 `npm run test:real`。
 
 ## 仓库状态
 

@@ -10,6 +10,17 @@
 - 文件适配器新增 Markdown 日记支持（`diary/*.md`，日期取文件名）。
 - 总览显示成长天数/阶段/轮数/最后对话时间；时间线显示事件类型、`verdict` 与事件所属天数/阶段。
 - `scripts/smoke-dsh-fish.mjs`：dsh-fish 日记、事件流、`home.json`、只读性与 dsh-fishtank 回归。
+- `scripts/smoke-real-dsh-fish.mjs`（`npm run test:real`）：可选的真实 `~/.dsh-fish` 复制目录端到端验证。
+
+### 修复
+
+- dsh-fish / dsh-fishtank 纯日期按本地时区解析，不再把日记显示成 UTC 午夜偏移后的时间，也不会让概览“最近活动”落到未来。
+- dsh-fish 启动基线与手动检查点会记录所有受跟踪文件（包括只读哈希）；基线固定，不会被保留策略自动清掉。
+- dsh-fish 自动检查点只跟随日记写入，`events.jsonl` 追加不再产生数百个哈希点。
+- 只读降级的第二个实例不再创建/清理检查点目录；HTTP 源不再创建检查点管理器或锁。
+- 损坏的状态 JSON 返回 `source-invalid`；无法解析的 JSONL 行计数并在时间线提示。
+- 中文界面的警告、事件类型、检查点角色/操作、常见错误码改为走 locale；补总览空状态入口、时间线空状态、检查点空差异和 HTTP 源检查点过滤。
+- 检查点 manifest 与迁移包的导出器版本改为读取 `package.json`，不再写死 0.1.0。
 
 ## [0.1.1] - 2026-11-11
 

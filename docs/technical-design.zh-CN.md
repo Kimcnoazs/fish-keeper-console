@@ -11,7 +11,7 @@
 | 目标包 | `dsh-fishkeeper`（Cordis bundle + Web Client 插件） |
 | 关联需求 | [requirements.zh-CN.md](./requirements.zh-CN.md) |
 
-> **实现状态**：本文是设计基线。当前 MVP 已实现双源总览、审计、检查点/回滚、`dsh-fishtank` 写回、HTTP 鉴权、数据源设置与自检；实现为纯 JavaScript，不是 TypeScript。与本文的差异见根目录 [README](../README.md) 的“已实现/尚未完成”。
+> **实现状态**：本文是设计基线。当前 MVP 已实现双源总览、审计、检查点/回滚、`dsh-fishtank` 写回、HTTP 鉴权、数据源设置与自检；实现为纯 JavaScript，不是 TypeScript。与本文的差异见根目录 [README](../README.md) 的“已实现/尚未完成”，以及 [全面自检记录（2026-11-18）](./self-audit-2026-11-18.md) 第 5 节的逐项对照。
 
 **阅读路径**：实现者先读 §3–§8（架构、适配器、存储、检查点）；评审者重点看 §1.1、§8.5、§15、§17；维护者看 §18–§20。关键需求裁决与技术实现的对应关系见文末附录 E。
 
@@ -795,6 +795,8 @@ maxAgeDays = 90，maxFileBytes = 8 MiB。
 
 - 用户可以在每个源上单独关闭 `diary/persona/memory` 触发器。
 - 关闭触发器只影响自动创建；手动创建仍可用。
+
+**实现说明（2026-11-18）**：当前版本没有触发器开关 UI，自动触发角色由适配器 `describe().autoCheckpointRoles` 按预设给出：通用文件源为 `diary/persona/memory`，`dsh-fish` 只保留 `diary`（`events.jsonl` 每轮都会追加，逐条建点会产生数百个只有哈希的 manifest），`dsh-fishtank` 为空（只有 `fish.json` 一个状态文件）。启动基线会固定（`pinned`），手动检查点会记录所有受跟踪文件的当前哈希，即使它们没有变化。只读降级实例只读取 manifest，不建目录、不清理 staging、不建基线。
 
 ### 8.2 监听与对账
 
