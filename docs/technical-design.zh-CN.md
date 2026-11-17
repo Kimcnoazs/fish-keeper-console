@@ -510,11 +510,16 @@ export const PRESETS = {
     memory: { path: 'events.jsonl', format: 'jsonl', restorable: false, appendOnly: true },
     fieldMap: { /* ... */ },
   },
-  fish: { /* ... */ },
+  'dsh-fish': {
+    status: { path: 'home.json', format: 'json' },
+    diary: { path: 'diary/*.md', format: 'text' },
+    memory: { path: 'events.jsonl', format: 'jsonl', restorable: false, appendOnly: true },
+    fieldMap: { /* ... */ },
+  },
 } as const
 ```
 
-M0 必须用真实插件样本验证每个预设；预设不匹配时，用户可以用 `fieldMap` 自定义，或在 Issue 中提交新样本。
+M0 必须用真实插件样本验证每个预设；预设不匹配时，用户可以用 `fieldMap` 自定义，或在 Issue 中提交新样本。`dsh-fish` 的真实文件布局与只读边界见 [`compat-notes.md`](./compat-notes.md) §8。
 
 **跨 profile**：控制台不启动、不切换 DSH profile。另一个 profile 的鱼只是另一个文件源；控制台只读取其数据目录，不写该 profile 的配置或插件状态。写入仍受该数据源的锁约束。
 

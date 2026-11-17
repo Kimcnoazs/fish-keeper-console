@@ -1,0 +1,11 @@
+{
+  "wsId": "ws_demo_dsh_fish",
+  "sessionId": "sess_demo_dsh_fish",
+  "title": "大肥鱼的家",
+  "preset": "fish",
+  "createdAt": "2026-11-01T09:00:00.000Z",
+  "turns": 42,
+  "lastTurnAt": 1794399600000,
+  "prevTurnAt": 1794399000000,
+  "wokeFor": "sess_demo_dsh_fish"
+}

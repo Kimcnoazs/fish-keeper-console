@@ -4,6 +4,7 @@ Everything under this directory is **synthetic**. It contains no real fish, user
 
 - `fish-a/`, `fish-b/` use the generic file adapter (`fish.json` / `state.json`, JSONL diaries, `river/events.jsonl`).
 - `fishtank/` mirrors the `fish.json` shape of `dsh-fishtank@0.1.0` for the `preset: fishtank` contract tests.
+- `dsh-fish/` mirrors the read-only data layout of `dsh-fish`: `home.json`, `events.jsonl`, `diary/YYYY-MM-DD.md`, plus a derived `state.json` and `config.json` that the console does not track. It is used by the `preset: dsh-fish` contract tests.
 - `fish-a/credentials/demo.json` is a fake credential file used only to demonstrate existence and permission checks. Its token is not a usable secret.
 
 The demo is wired in `cordis.patch.yml` by relative paths. Remove those sources or replace `location` with a real data directory before using the console for real fish.
