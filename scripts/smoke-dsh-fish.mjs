@@ -2,13 +2,14 @@ import { promises as fsp } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createHash, randomBytes } from 'node:crypto'
+import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
 import { CheckpointManager } from '../lib/checkpoints.js'
 import { ConsoleRuntime } from '../lib/runtime.js'
 import { createAdapter } from '../lib/sources.js'
-import { PACKAGE_VERSION, pathIsWithin } from '../lib/util.js'
+import { PACKAGE_VERSION, pathIsWithin, sha256File } from '../lib/util.js'
 
-const workspace = new URL('..', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/u, '$1')
+const workspace = fileURLToPath(new URL('..', import.meta.url))
 const temp = join(tmpdir(), `fishkeeper-dsh-fish-${randomBytes(4).toString('hex')}`)
 const sourceRoot = join(temp, 'source')
 const tankRoot = join(temp, 'fishtank')
@@ -231,6 +232,186 @@ const withRoles = await createAdapter({
   options: { preset: 'dsh-fish', autoCheckpointRoles: ['memory', 'bogus'] },
 }, {}, {})
 assert.deepEqual((await withRoles.describe()).autoCheckpointRoles, ['memory'], 'explicit trigger roles are honored and filtered')
+
+// Opt-in restore: the preset stays read-only by default, and only
+// options.allowRestore turns the tracked files restorable. Restores are guarded
+// by an explicit plugin-stopped confirmation plus a 30-second quiet-window
+// fallback, and events.jsonl is truncated (never silently rewritten).
+const restoreRoot = join(temp, 'restore-source')
+await fsp.cp(join(workspace, 'demo', 'dsh-fish'), restoreRoot, { recursive: true })
+const restoreAdapter = await createAdapter({
+  id: 'fish-restore',
+  displayName: '可回滚鱼',
+  adapter: 'file',
+  location: restoreRoot,
+  options: { preset: 'dsh-fish', allowRestore: true },
+}, {}, {})
+const restoreDescription = await restoreAdapter.describe()
+assert.equal(restoreDescription.capabilities.restore, true)
+assert.equal(restoreDescription.capabilities.import, false, 'restore does not enable write-back import')
+assert.ok(restoreDescription.files.every(file => file.restorable === true))
+assert.equal(restoreDescription.files.find(file => file.role === 'memory')?.appendOnly, true)
+assert.deepEqual(
+  restoreDescription.warningCodes.map(warning => warning.code),
+  ['dshfish-restore-enabled', 'dshfish-append-only-restore'],
+)
+
+const restoreManager = new CheckpointManager({
+  dataRoot: join(temp, 'restore-data'),
+  source: { id: 'fish-restore', location: restoreRoot },
+  describe: restoreDescription,
+  retention: {},
+})
+await restoreManager.init()
+await restoreManager.baseline()
+const restoreBaseline = await restoreManager.ensureBaselineCheckpoint()
+assert.ok(restoreBaseline, 'restorable dsh-fish source gets a snapshot baseline')
+const restoreEventsEntry = restoreManager.get(restoreBaseline.id).files.find(file => file.path === 'events.jsonl')
+const restoreHomeEntry = restoreManager.get(restoreBaseline.id).files.find(file => file.path === 'home.json')
+assert.ok(restoreEventsEntry?.before?.blob, 'events.jsonl content is snapshotted when restore is enabled')
+assert.ok(restoreHomeEntry?.before?.blob)
+assert.equal(restoreEventsEntry.appendOnly, true)
+
+const restoreEventsPath = join(restoreRoot, 'events.jsonl')
+const restoreHomePath = join(restoreRoot, 'home.json')
+await fsp.appendFile(restoreEventsPath, `${JSON.stringify({
+  id: 'ev_restore_window',
+  v: 1,
+  ts: '2026-11-11T13:30:00.000Z',
+  day: 11,
+  stage: 2,
+  type: 'utterance',
+  source: 'user',
+  text: '回滚前刚写的一条事件',
+  refs: [],
+  verdict: null,
+  confidence: 0.5,
+  flags: [],
+})}\n`)
+const restoreHomeData = JSON.parse((await fsp.readFile(restoreHomePath, 'utf8')).replace(/^\uFEFF/u, ''))
+assert.equal(restoreHomeData.turns, 42)
+
+const busyNow = new Date()
+await fsp.utimes(restoreEventsPath, busyNow, busyNow)
+await fsp.utimes(restoreHomePath, busyNow, busyNow)
+await assert.rejects(
+  () => restoreManager.preflightRestore(restoreBaseline.id, ['events.jsonl', 'home.json']),
+  error => error.code === 'fishkeeper/restore-busy' && /鱼正在活动/u.test(error.message),
+  'a write inside the 30-second quiet window is refused',
+)
+
+const quiet = new Date(Date.now() - 31_000)
+await fsp.utimes(restoreEventsPath, quiet, quiet)
+await fsp.utimes(restoreHomePath, quiet, quiet)
+const restorePlan = await restoreManager.preflightRestore(restoreBaseline.id, ['events.jsonl', 'home.json'])
+const eventsPlan = restorePlan.files.find(file => file.path === 'events.jsonl')
+assert.equal(eventsPlan.mode, 'truncate', 'an appended events.jsonl rolls back by truncation')
+assert.equal(eventsPlan.stale, false, 'appends after the checkpoint do not count as stale')
+assert.equal(eventsPlan.truncateBytes, restoreEventsEntry.before.bytes)
+assert.equal(restorePlan.files.find(file => file.path === 'home.json')?.action, 'restore')
+
+const restored = await restoreManager.restore(restoreBaseline.id, ['events.jsonl', 'home.json'])
+assert.equal(restored.ok, true)
+assert.ok(restored.safetyCheckpointId, 'a pre-restore safety checkpoint is created')
+assert.equal(await sha256File(restoreEventsPath), restoreEventsEntry.before.sha256)
+assert.equal(await sha256File(restoreHomePath), restoreHomeEntry.before.sha256)
+const safetyManifest = restoreManager.get(restored.safetyCheckpointId)
+assert.equal(safetyManifest.files.length, restoreManager.get(restoreBaseline.id).files.length, 'the safety checkpoint covers the whole dsh-fish state')
+assert.ok(safetyManifest.files.every(file => file.mode === 'snapshot'))
+
+// A file whose content no longer extends the checkpoint can only be replaced
+// as a whole, and that replacement must be confirmed explicitly.
+await fsp.writeFile(restoreEventsPath, `rewritten\n${await fsp.readFile(restoreEventsPath, 'utf8')}`)
+await fsp.utimes(restoreEventsPath, quiet, quiet)
+await fsp.utimes(restoreHomePath, quiet, quiet)
+const replacePlan = await restoreManager.preflightRestore(restoreBaseline.id, ['events.jsonl'])
+const replaceEvents = replacePlan.files.find(file => file.path === 'events.jsonl')
+assert.equal(replaceEvents.mode, 'replace')
+assert.equal(replaceEvents.stale, true)
+await assert.rejects(
+  () => restoreManager.restore(restoreBaseline.id, ['events.jsonl']),
+  error => error.code === 'fishkeeper/restore-stale',
+  'whole-file replacement is refused without explicit confirmation',
+)
+const replaced = await restoreManager.restore(restoreBaseline.id, ['events.jsonl'], { overrideStale: true })
+assert.equal(replaced.ok, true)
+assert.equal(await sha256File(restoreEventsPath), restoreEventsEntry.before.sha256)
+await restoreManager.dispose()
+
+// Runtime-level gate: an explicit "plugin is disabled" confirmation is the
+// primary guard; the mtime check runs again at execute time as a fallback.
+const runtimeRestoreRoot = join(temp, 'restore-runtime-source')
+await fsp.cp(join(workspace, 'demo', 'dsh-fish'), runtimeRestoreRoot, { recursive: true })
+const restoreRuntime = new ConsoleRuntime(ctx, {
+  dataRoot: join(temp, 'restore-runtime-data'),
+  sources: [
+    { id: 'fish', displayName: '回滚鱼', adapter: 'file', location: runtimeRestoreRoot, enabled: true, options: { preset: 'dsh-fish', allowRestore: true } },
+  ],
+})
+await restoreRuntime.start()
+try {
+  const restoreSourceInfo = restoreRuntime.sourceList().find(source => source.id === 'fish')
+  assert.equal(restoreSourceInfo.capabilities.restore, true)
+  const restoreList = restoreRuntime.checkpoints('fish')
+  assert.equal(restoreList.restoreSupported, true)
+  const runtimeBaseline = restoreList.items.find(item => item.baseline)
+  assert.ok(runtimeBaseline)
+  const runtimeManifest = restoreRuntime.checkpointDetail(runtimeBaseline.id).manifest
+  const runtimeEventsEntry = runtimeManifest.files.find(file => file.path === 'events.jsonl')
+  const runtimeHomeEntry = runtimeManifest.files.find(file => file.path === 'home.json')
+  const runtimeEventsPath = join(runtimeRestoreRoot, 'events.jsonl')
+  const runtimeHomePath = join(runtimeRestoreRoot, 'home.json')
+  await fsp.appendFile(runtimeEventsPath, `${JSON.stringify({
+    id: 'ev_restore_runtime',
+    v: 1,
+    ts: '2026-11-11T13:40:00.000Z',
+    day: 11,
+    stage: 2,
+    type: 'utterance',
+    source: 'user',
+    text: '运行时回滚测试事件',
+    refs: [],
+    verdict: null,
+    confidence: 0.5,
+    flags: [],
+  })}\n`)
+  const runtimeHomeData = JSON.parse((await fsp.readFile(runtimeHomePath, 'utf8')).replace(/^\uFEFF/u, ''))
+  assert.equal(runtimeHomeData.turns, 42)
+  const runtimeBusy = new Date()
+  await fsp.utimes(runtimeEventsPath, runtimeBusy, runtimeBusy)
+  await fsp.utimes(runtimeHomePath, runtimeBusy, runtimeBusy)
+  await assert.rejects(
+    () => restoreRuntime.restoreDryRun(runtimeBaseline.id, ['events.jsonl', 'home.json']),
+    error => error.code === 'fishkeeper/restore-busy',
+  )
+  await fsp.utimes(runtimeEventsPath, quiet, quiet)
+  await fsp.utimes(runtimeHomePath, quiet, quiet)
+  const runtimePlan = await restoreRuntime.restoreDryRun(runtimeBaseline.id, ['events.jsonl', 'home.json'])
+  assert.equal(runtimePlan.requiresPluginStopped, true)
+  assert.equal(runtimePlan.reenablePluginAfterRestore, true)
+  await assert.rejects(
+    () => restoreRuntime.restoreExecute({
+      id: runtimeBaseline.id,
+      paths: ['events.jsonl', 'home.json'],
+      confirmToken: runtimePlan.confirmToken,
+    }),
+    error => error.code === 'fishkeeper/restore-plugin-active',
+    'restore is refused until the user confirms the plugin is disabled',
+  )
+  const confirmedPlan = await restoreRuntime.restoreDryRun(runtimeBaseline.id, ['events.jsonl', 'home.json'])
+  const runtimeRestored = await restoreRuntime.restoreExecute({
+    id: runtimeBaseline.id,
+    paths: ['events.jsonl', 'home.json'],
+    confirmToken: confirmedPlan.confirmToken,
+    pluginStopped: true,
+  })
+  assert.equal(runtimeRestored.ok, true)
+  assert.equal(runtimeRestored.reenablePlugin, true)
+  assert.equal(await sha256File(runtimeEventsPath), runtimeEventsEntry.before.sha256)
+  assert.equal(await sha256File(runtimeHomePath), runtimeHomeEntry.before.sha256)
+} finally {
+  await restoreRuntime.dispose()
+}
 
 const generic = await createAdapter({ id: 'generic-md', displayName: '通用 md', adapter: 'file', location: genericRoot }, {}, {})
 const genericDiary = await generic.readDiary()

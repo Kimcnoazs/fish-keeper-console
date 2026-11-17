@@ -2,11 +2,12 @@ import { promises as fsp } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { randomBytes } from 'node:crypto'
+import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
 import { ConsoleRuntime } from '../lib/runtime.js'
 import { readZip } from '../lib/zip.js'
 
-const workspace = new URL('..', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/u, '$1')
+const workspace = fileURLToPath(new URL('..', import.meta.url))
 const temp = join(tmpdir(), `fishkeeper-share-${randomBytes(4).toString('hex')}`)
 await fsp.mkdir(temp, { recursive: true })
 const sourceRoot = join(temp, 'fish-a')
