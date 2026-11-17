@@ -22,7 +22,7 @@
 
 ## 已实现
 
-- 多数据源只读总览：文件源（JSON/JSONL，自动识别 `fish.json` / `state.json` / `diary` / `river`）与 loopback HTTP 源；内置 `fishtank` 预设，按 dsh-fishtank 的真实 `fish.json` 字段校准（见 [compat-notes](./docs/compat-notes.md)）。
+- 多数据源只读总览：文件源（JSON/JSONL/Markdown 日记，自动识别 `fish.json` / `state.json` / `diary` / `river`）与 loopback HTTP 源；内置 `fishtank` 与 `dsh-fish` 预设，分别按 dsh-fishtank 的真实 `fish.json` 与 dsh-fish 的 `home.json` + `events.jsonl` + `diary/*.md` 字段校准（见 [compat-notes](./docs/compat-notes.md)）。
 - 审计时间线：日记与外部行为合并、分页、搜索、风险筛选、默认脱敏；原文按单条显式读取。
 - 风险规则：邮箱、手机号、身份证校验位、银行卡 Luhn、地址、常见 API 密钥；主观话题规则默认关闭。
 - 检查点：启动基线、变更自动检查点、手动检查点、diff、回滚、安全检查点、固定/删除、按源锁只读降级。
@@ -59,7 +59,7 @@ DSH 生态里的“养鱼”已经分成人格生长、渠道接入、状态持�
 |---|---|---|
 | [功能需求单](./docs/requirements.zh-CN.md) | 背景、用户场景、边界、P0/P1/P2 需求、验收标准、NFR、里程碑 | 需求评审、贡献者、鱼插件作者 |
 | [技术方案](./docs/technical-design.zh-CN.md) | 架构、适配器 SDK、检查点与回滚算法、迁移包、Host API、安全、测试 | 实现者、代码评审者 |
-| [目标插件兼容笔记](./docs/compat-notes.md) | `dsh-fishtank` 的真实数据布局、HTTP 端点、写回风险与样本 | 适配器维护者、集成者 |
+| [目标插件兼容笔记](./docs/compat-notes.md) | `dsh-fishtank` 与 `dsh-fish` 的真实数据布局、HTTP 端点、写回风险与样本 | 适配器维护者、集成者 |
 
 建议阅读顺序：需求单 §1–§3（为什么做、做到什么程度）→ 技术方案 §1–§3（怎么做）→ 需求单 §7（怎么验收）。
 
@@ -112,6 +112,7 @@ DSH 生态里的“养鱼”已经分成人格生长、渠道接入、状态持�
 - **回滚能力取决于适配器。** 只追加事件流等唯一可信源永远不可回滚；面板会明确禁用并解释。
 - **`fish.json` 写回需要先停鱼插件。** `dsh-fishtank` 在内存中防抖保存，运行中外部写入可能被下一次保存覆盖；写回后请重载鱼插件。
 - **`dsh-fishtank` 不会自动触发检查点。** 它的日记/人格/记忆都在同一个 `fish.json` 里，角色是 `status`；需要手动创建检查点，或把它作为普通文件源并显式声明可回滚文件。
+- **`dsh-fish` 源严格只读。** 预设声明 `home.json`、`events.jsonl` 与 `diary/*.md` 均不可回滚、不可写回；检查点只记录哈希，不复制正文。它不修改 dsh-fish 插件本身，也不改变 `diary.visible` 等插件设置。
 - **自定义风险规则尚未提供 UI。** 当前使用 `lib/rules.js` 的默认客观规则集；主观话题规则默认关闭。
 
 ## 隐私
@@ -156,7 +157,7 @@ config:
 
 `location` 为相对路径时，按**插件包根目录**解析；也可以写绝对路径。`dataRoot` 为空时使用默认值 `~/.dsh/fishkeeper`；相对路径同样按插件包根目录解析。
 
-换成真实鱼时，把 `location` 指向它的数据目录。当前适配器会自动识别 `fish.json`、`state.json`、`diary/*.jsonl`、`river/events.jsonl`、`self.json`、`events.jsonl`；`dsh-fishtank` 使用 `options.preset: fishtank`。保存配置后重载 `include:fishkeeper`。
+换成真实鱼时，把 `location` 指向它的数据目录。当前适配器会自动识别 `fish.json`、`state.json`、`diary/*.jsonl`、`diary/*.md`、`river/events.jsonl`、`self.json`、`events.jsonl`；`dsh-fishtank` 使用 `options.preset: fishtank`，`dsh-fish` 使用 `options.preset: dsh-fish`（数据目录默认 `~/.dsh-fish`）。保存配置后重载 `include:fishkeeper`。
 
 ### 开发构建
 
@@ -184,6 +185,7 @@ node scripts/smoke-lock.mjs      # 双实例只读降级
 node scripts/smoke-watch.mjs     # 变更自动检查点与回滚
 node scripts/smoke-share.mjs     # 分享包剔除正文与凭据
 node scripts/smoke-fishtank.mjs  # dsh-fishtank 样本、写回、身份校验、HTTP 鉴权
+node scripts/smoke-dsh-fish.mjs  # dsh-fish 日记、事件流、home.json、只读与 fishtank 回归
 ```
 
 这些脚本使用临时目录与合成数据，不会写入真实鱼数据。
@@ -202,7 +204,7 @@ fish-keeper-console/
 ├── locale/          # en / zh，含 plugin manager metadata
 ├── lib/             # 已构建的 Host 与 Client bundle
 ├── src/client.jsx   # Client 源码
-├── demo/            # 合成鱼数据源；fishtank 样本见 compat-notes
+├── demo/            # 合成鱼数据源；fishtank / dsh-fish 样本见 compat-notes
 ├── scripts/         # 冒烟测试与 client 包装
 └── docs/            # 需求单、技术方案、目标插件兼容笔记
 ```

@@ -1,0 +1,7 @@
+{
+  "diary": {
+    "enabled": true,
+    "visible": false,
+    "keepDays": 0
+  }
+}

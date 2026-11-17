@@ -1,0 +1,7 @@
+{"id":"ev_00000000000000000000000001","v":1,"ts":"2026-11-01T09:00:00.000Z","day":1,"stage":1,"type":"seed","source":"import","text":"她从一片空白里醒过来，先记住了水面的声音。","refs":[],"verdict":null,"confidence":0.5,"flags":[]}
+{"id":"ev_00000000000000000000000002","v":1,"ts":"2026-11-09T10:00:00.000Z","day":9,"stage":1,"type":"utterance","source":"tool","text":"今天想学着分辨下午的光。","refs":[],"verdict":null,"confidence":0.5,"flags":[]}
+{"id":"ev_00000000000000000000000003","v":1,"ts":"2026-11-10T08:00:00.000Z","day":10,"stage":1,"type":"heard","source":"system","text":"主人说：慢一点也没关系。","refs":[],"verdict":null,"confidence":0.5,"flags":[]}
+{"id":"ev_00000000000000000000000004","v":1,"ts":"2026-11-10T09:00:00.000Z","day":10,"stage":1,"type":"revise","source":"tool","text":"我以前以为安静就是不动，现在觉得它也可以是听得更仔细。","refs":["ev_00000000000000000000000002"],"verdict":"refined","confidence":0.5,"flags":[]}
+{"id":"ev_00000000000000000000000005","v":1,"ts":"2026-11-11T07:30:00.000Z","day":11,"stage":2,"type":"dream","source":"tool","text":"我梦见水面外面还有一层水面。","refs":["ev_00000000000000000000000002","ev_00000000000000000000000003"],"verdict":null,"confidence":0.5,"flags":[]}
+{"id":"ev_00000000000000000000000006","v":1,"ts":"2026-11-11T11:00:00.000Z","day":11,"stage":2,"type":"comment","source":"system","text":"这条视频里的海，比我住的水面亮。","refs":[],"verdict":null,"confidence":0.5,"flags":[]}
+{"id":"ev_00000000000000000000000007","v":1,"ts":"2026-11-11T12:20:00.000Z","day":0,"stage":1,"type":"meta","source":"system","text":"seen:2026-11-11T12:20:00.000Z","refs":[],"verdict":null,"confidence":0.5,"flags":[]}

@@ -2,6 +2,15 @@
 
 本文件记录 Fish Keeper Console 的版本变更。格式参考 Keep a Changelog，版本号遵循 SemVer。
 
+## [Unreleased]
+
+### 新增
+
+- `dsh-fish` 只读数据源预设：读取 `home.json`（`turns`/`lastTurnAt`）、`events.jsonl` 事件流（`type`/`day`/`stage`/`verdict`）与 `diary/YYYY-MM-DD.md`；默认跳过 `meta`/`test` 系统记录，不写回、不回滚、不修改 dsh-fish 插件。
+- 文件适配器新增 Markdown 日记支持（`diary/*.md`，日期取文件名）。
+- 总览显示成长天数/阶段/轮数/最后对话时间；时间线显示事件类型、`verdict` 与事件所属天数/阶段。
+- `scripts/smoke-dsh-fish.mjs`：dsh-fish 日记、事件流、`home.json`、只读性与 dsh-fishtank 回归。
+
 ## [0.1.1] - 2026-11-11
 
 仅文档与打包元数据，功能与 0.1.0 相同：刷新 npm 页面上的 README（安装说明、界面截图、npm 徽章）。Release 附件 zip 仍为 0.1.0 快照。

@@ -213,14 +213,30 @@ function SourceCard({ t, source, onOpenTimeline, onOpenCheckpoints }) {
           )}
           <div className="fk-meta-grid">
             <div><span className="fk-label">{t('overview.lastActive')}</span><span>{formatTime(fish?.lastActiveAt)}</span></div>
-            <div><span className="fk-label">{t('overview.mood')}</span><span>{fish?.mood ?? '—'}</span></div>
-            <div>
-              <span className="fk-label">{t('overview.energy')}</span>
-              <span className="fk-energy-row">
-                <span className="fk-energy-track"><span className="fk-energy-fill" style={{ width: `${Math.round((energy ?? 0) * 100)}%` }} /></span>
-                <span>{energy === undefined ? '—' : `${Math.round(energy * 100)}%`}</span>
-              </span>
-            </div>
+            {fish?.day !== undefined && (
+              <div><span className="fk-label">{t('overview.day')}</span><span>{fish.day}</span></div>
+            )}
+            {fish?.stage !== undefined && (
+              <div><span className="fk-label">{t('overview.stage')}</span><span>{fish.stage}</span></div>
+            )}
+            {fish?.turns !== undefined && (
+              <div><span className="fk-label">{t('overview.turns')}</span><span>{fish.turns}</span></div>
+            )}
+            {fish?.lastTurnAt !== undefined && (
+              <div><span className="fk-label">{t('overview.lastTurn')}</span><span>{formatTime(fish.lastTurnAt)}</span></div>
+            )}
+            {fish?.mood !== undefined && (
+              <div><span className="fk-label">{t('overview.mood')}</span><span>{fish.mood}</span></div>
+            )}
+            {fish?.energy !== undefined && (
+              <div>
+                <span className="fk-label">{t('overview.energy')}</span>
+                <span className="fk-energy-row">
+                  <span className="fk-energy-track"><span className="fk-energy-fill" style={{ width: `${Math.round((energy ?? 0) * 100)}%` }} /></span>
+                  <span>{energy === undefined ? '—' : `${Math.round(energy * 100)}%`}</span>
+                </span>
+              </div>
+            )}
           </div>
 
           <section className="fk-snippet">
@@ -353,8 +369,12 @@ function TimelineTab({ t, sources }) {
               <span className="fk-timeline-main">
                 <span className="fk-timeline-meta">
                   <span className="fk-chip">{item.sourceName}</span>
-                  <span className="fk-muted">{t(`kind.${item.kind}`)}</span>
+                  <span className="fk-muted">{item.eventType ?? t(`kind.${item.kind}`)}</span>
+                  {item.verdict && <span className="fk-muted">· {t(`verdict.${item.verdict}`)}</span>}
                   {item.channel && <span className="fk-muted">· {item.channel}</span>}
+                  {item.day !== undefined && (
+                    <span className="fk-muted">· {t('timeline.dayStage', { day: item.day, stage: item.stage ?? 1 })}</span>
+                  )}
                   <span className="fk-muted">· {t(`timeline.${item.visibility}`)}</span>
                 </span>
                 <span className="fk-timeline-text">{item.textMasked}</span>
@@ -376,6 +396,11 @@ function TimelineTab({ t, sources }) {
           <div className="fk-detail-meta">
             <span className="fk-chip">{detail.sourceName}</span>
             <span>{t(`kind.${detail.kind}`)}</span>
+            {detail.eventType && <span className="fk-muted">· {detail.eventType}</span>}
+            {detail.verdict && <span className="fk-muted">· {t(`verdict.${detail.verdict}`)}</span>}
+            {detail.day !== undefined && (
+              <span className="fk-muted">· {t('timeline.dayStage', { day: detail.day, stage: detail.stage ?? 1 })}</span>
+            )}
             <span className="fk-muted">{formatTime(detail.occurredAt)}</span>
             {detail.channel && <span className="fk-muted">· {detail.channel}</span>}
             <span className="fk-muted">· {t(`timeline.${detail.visibility}`)}</span>
@@ -1092,7 +1117,7 @@ function SettingsTab({ t, notify }) {
             } catch {
               parsed = undefined
             }
-            const preset = parsed && typeof parsed === 'object' && parsed.preset === 'fishtank' ? 'fishtank' : ''
+            const preset = parsed && typeof parsed === 'object' && (parsed.preset === 'fishtank' || parsed.preset === 'dsh-fish') ? parsed.preset : ''
             const setPreset = value => {
               const base = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? { ...parsed } : {}
               if (value) base.preset = value
@@ -1122,6 +1147,7 @@ function SettingsTab({ t, notify }) {
                     <select className="fk-select" value={preset} onChange={event => setPreset(event.target.value)}>
                       <option value="">{t('settings.presetNone')}</option>
                       <option value="fishtank">{t('settings.presetFishtank')}</option>
+                      <option value="dsh-fish">{t('settings.presetDshFish')}</option>
                     </select>
                   </label>
                   <label className="fk-check fk-check-inline">

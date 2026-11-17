@@ -139,4 +139,55 @@ HTTP 预设配置：
 
 ---
 
-> 本文件是非官方兼容说明，不包含 `dsh-fishtank` 的代码，也不代表其作者对本项目的背书。`dsh-fishtank` 及相关名称归其作者所有。
+## 8. dsh-fish（只读预设 `dsh-fish`）
+
+> 本节依据 `@ssamurias/dsh-fish@1.0.3` 的公开源码与 [`demo/dsh-fish/`](../demo/dsh-fish/) 合成样本校准；控制台不修改该插件或其数据。
+
+### 8.1 数据目录与文件
+
+| 项 | 值 |
+|---|---|
+| 插件包 | `@ssamurias/dsh-fish@1.0.3` |
+| 默认根目录 | `~/.dsh-fish`（可用 `DSH_FISH_HOME` 或 `~/.dsh-fish-location.json` 迁移指针覆盖） |
+| 受跟踪文件 | `home.json`、`events.jsonl`、`diary/YYYY-MM-DD.md` |
+| 不跟踪的派生文件 | `state.json`（由事件流重算）、`config.json`、`owner.json` |
+
+- `events.jsonl`：只追加的唯一可信源；一行一条事件，行序即时间序。
+- `home.json`：当前工作区/会话、`turns`（累计轮数）、`lastTurnAt` / `prevTurnAt`（最近两轮对话的毫秒时间戳）、`createdAt`、`wokeFor` 等。
+- `diary/YYYY-MM-DD.md`：一天一个文件；同日多次写入以 `\n\n---\n\n` 接在文件末尾，文件名是本地日期。
+- 日记正文不进入事件流；`state.json` 只是派生快照，控制台不把它当作状态源。
+
+### 8.2 字段映射
+
+| Fish Keeper 字段 | 来源 |
+|---|---|
+| `status.day` / `status.stage` | `events.jsonl` 中 `day >= 1` 的最大 `day` 事件（同一天取最大 `stage`）；`day: 0` 的系统事件不参与 |
+| `status.turns` | `home.json.turns` |
+| `status.lastTurnAt` | `home.json.lastTurnAt`（毫秒） |
+| `status.lastActiveAt` | `lastTurnAt`、最新事件 `ts`、最新日记日期三者最大值 |
+| `status.latestDiary` | 最新 `diary/YYYY-MM-DD.md` 的正文与文件名日期（`visibility = private`） |
+| `status.dataBytes` | `home.json` + `events.jsonl` + 所有 `diary/*.md` |
+| `timeline.diary` | 每个 `diary/*.md` 一条；`occurredAt` 取文件名日期，正文原文 |
+| `timeline.external` | `events.jsonl` 中每条有正文的事件；携带 `eventType`、`day`、`stage`、`verdict` |
+| `describe.identity` | `sha256("dsh-fish\0" + home.json.createdAt)` |
+
+`options.fieldMap` 可覆盖 `statusPath`、`eventsPath`、`diaryPattern`，默认值分别是 `home.json`、`events.jsonl`、`diary/*.md`。
+
+`meta`（`seen:`、`browsed:`、`quiet:` 等内部记账）和 `test` 属于系统记录，默认不进入审计时间线；`options.includeSystemEvents: true` 可以把它们也放进来。
+
+### 8.3 只读边界
+
+- 本预设声明 `home.json`、`events.jsonl`、`diary/*.md` 全部 `restorable: false`，`capabilities.restore` 与 `capabilities.import` 都是 `false`。控制台只读取这些文件；检查点只记录哈希与大小。
+- `events.jsonl` 是唯一可信源，即使后续提供回滚也不会改写。
+- 控制台不读也不改 dsh-fish 的 `config.json` 或 `diary.visible`；它按文件读取日记，因此 dsh-fish 自己界面里是否展示日记不影响这里的读取结果。
+
+### 8.4 样本与测试
+
+- 合成样本：[`demo/dsh-fish/`](../demo/dsh-fish/)
+- 冒烟测试：`node scripts/smoke-dsh-fish.mjs`。断言 Markdown 日记按文件名取日期、事件流 `type/day/stage/verdict`、`home.json` 的 `turns`/`lastTurnAt`、读取前后源目录哈希不变，并回归 `preset: fishtank`。
+- 界面证据（深色主题、1280×900、同一 `demo/dsh-fish` 数据源；“前”为 0.1.1 的 Client bundle，“后”为本 PR 重新构建的 bundle）：
+  - 总览：[前](./screenshots/dsh-fish-before-overview.png) / [后](./screenshots/dsh-fish-after-overview.png)
+  - 时间线：[前](./screenshots/dsh-fish-before-timeline.png) / [后](./screenshots/dsh-fish-after-timeline.png)
+  - 数据源设置：[前](./screenshots/dsh-fish-before-settings.png) / [后](./screenshots/dsh-fish-after-settings.png)
+
+> 本文件是非官方兼容说明，不包含 `dsh-fishtank` 或 `dsh-fish` 的代码，也不代表其作者对本项目的背书。相关名称归其作者所有。
