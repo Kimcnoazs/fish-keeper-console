@@ -173,6 +173,8 @@ HTTP 预设配置：
 
 `options.fieldMap` 可覆盖 `statusPath`、`eventsPath`、`diaryPattern`，默认值分别是 `home.json`、`events.jsonl`、`diary/*.md`。
 
+`meta`（`seen:`、`browsed:`、`quiet:` 等内部记账）和 `test` 属于系统记录，默认不进入审计时间线；`options.includeSystemEvents: true` 可以把它们也放进来。
+
 ### 8.3 只读边界
 
 - 本预设声明 `home.json`、`events.jsonl`、`diary/*.md` 全部 `restorable: false`，`capabilities.restore` 与 `capabilities.import` 都是 `false`。控制台只读取这些文件；检查点只记录哈希与大小。
