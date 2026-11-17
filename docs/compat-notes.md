@@ -179,16 +179,17 @@ HTTP 预设配置：
 
 ### 8.3 只读边界
 
-- 本预设声明 `home.json`、`events.jsonl`、`diary/*.md` 全部 `restorable: false`，`capabilities.restore` 与 `capabilities.import` 都是 `false`。控制台只读取这些文件；检查点只记录哈希与大小。
-- `events.jsonl` 是唯一可信源，即使后续提供回滚也不会改写。
-- 自动检查点只跟随 `diary/*.md`。`events.jsonl` 每轮都会追加（包括 `meta` 记账），逐条建点会在几小时内产生数百个只有哈希的检查点；启动基线与手动检查点仍会记录它的当前哈希。
+- 未配置 `options.allowRestore: true` 时，本预设声明 `home.json`、`events.jsonl`、`diary/*.md` 全部 `restorable: false`，`capabilities.restore` 与 `capabilities.import` 都是 `false`。控制台只读取这些文件；检查点只记录哈希与大小。
+- 显式开启 `options.allowRestore: true` 后，三个受跟踪文件变为可回滚，`capabilities.import` 仍为 `false`。回滚前必须勾选“我已停用 @ssamurias/dsh-fish 插件”；`events.jsonl` 与 `home.json` 的 mtime 在最近 30 秒内变过时拒绝回滚，作为兜底。控制台会先快照当前 dsh-fish 状态，成功后提示可重新启用鱼插件。
+- `events.jsonl` 仍是只追加文件：回滚只截断回检查点记录的字节长度；当前内容不再从检查点续写时才做整文件替换，且必须显式确认（`overrideStale`）。检查点只接受 manifest 中记录的文件路径，不能手填内容。
+- 自动检查点只跟随 `diary/*.md`。`events.jsonl` 每轮都会追加（包括 `meta` 记账），逐条建点会在几小时内产生数百个只有哈希的检查点；开启回滚后该默认不变，启动基线与手动检查点会为 `events.jsonl` 保存可回滚快照。
 - 控制台不读也不改 dsh-fish 的 `config.json` 或 `diary.visible`；它按文件读取日记，因此 dsh-fish 自己界面里是否展示日记不影响这里的读取结果。
 - `diary/YYYY-MM-DD.md` 与 `fish.json.diary[].date` 的纯日期按本地时区解析，不按 UTC 午夜；这样东八区不会显示成当天 08:00，负时区也不会掉到前一天。
 
 ### 8.4 样本与测试
 
 - 合成样本：[`demo/dsh-fish/`](../demo/dsh-fish/)
-- 冒烟测试：`node scripts/smoke-dsh-fish.mjs`。断言 Markdown 日记按本地日期取日期、事件流 `type/day/stage/verdict`、`home.json` 的 `turns`/`lastTurnAt`、启动基线与手动检查点、写入口探针、读取前后源目录哈希不变，并回归 `preset: fishtank`。
+- 冒烟测试：`node scripts/smoke-dsh-fish.mjs`。断言 Markdown 日记按本地日期取日期、事件流 `type/day/stage/verdict`、`home.json` 的 `turns`/`lastTurnAt`、启动基线与手动检查点、写入口探针、读取前后源目录哈希不变，并回归 `preset: fishtank`。另覆盖 `allowRestore: true`：30 秒静默窗口、插件停用确认、`events.jsonl` 截断/整文件替换、回滚后 sha256 与安全检查点。
 - 真实数据脚本：`node scripts/smoke-real-dsh-fish.mjs`（或 `npm run test:real`）。复制真实目录后跑完整运行时，输出概览/时间线/日记/检查点计数，并对比复制目录哈希；无真实数据时跳过。
 - 界面证据（深色主题、1280×900、同一 `demo/dsh-fish` 数据源；“前”为 0.1.1 的 Client bundle，“后”为本 PR 重新构建的 bundle）：
   - 总览：[前](./screenshots/dsh-fish-before-overview.png) / [后](./screenshots/dsh-fish-after-overview.png)
@@ -198,5 +199,9 @@ HTTP 预设配置：
   - 总览：[前](./screenshots/self-audit/before-overview.png) / [后](./screenshots/self-audit/after-overview.png)
   - 时间线：[前](./screenshots/self-audit/before-timeline.png) / [后](./screenshots/self-audit/after-timeline.png)
   - 检查点：[前](./screenshots/self-audit/before-checkpoints.png) / [后](./screenshots/self-audit/after-checkpoints.png) / [后-详情](./screenshots/self-audit/after-checkpoint-detail.png)
+- dsh-fish 可选回滚的界面证据（浅色主题、1280×900、同一 `demo/dsh-fish` 数据源；“前”为 `main` @ `2daf12f` 的只读预设，“后”为本分支 `allowRestore: true`）：
+  - 概览警告：[前](./screenshots/dsh-fish-restore/before-overview.png) / [后](./screenshots/dsh-fish-restore/after-overview.png)
+  - 检查点详情：[前](./screenshots/dsh-fish-restore/before-checkpoints.png) / [后](./screenshots/dsh-fish-restore/after-checkpoints.png)
+  - 回滚确认（插件停用勾选与事件流截断提示）：[后](./screenshots/dsh-fish-restore/after-restore-modal.png)
 
 > 本文件是非官方兼容说明，不包含 `dsh-fishtank` 或 `dsh-fish` 的代码，也不代表其作者对本项目的背书。相关名称归其作者所有。

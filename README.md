@@ -71,7 +71,7 @@ DSH 生态里的“养鱼”已经分成人格生长、渠道接入、状态持�
 
 完整裁决见[需求单](./docs/requirements.zh-CN.md)附录 C 与[技术方案](./docs/technical-design.zh-CN.md) §1.1。
 
-1. **回滚只写声明可回滚的文件。** 日记可以恢复；`events.jsonl` 等被鱼插件声明为唯一可信源的文件永不改写。
+1. **回滚只写声明可回滚的文件。** 日记可以恢复；`events.jsonl` 等唯一可信源默认永不改写，只有显式开启 `options.allowRestore: true` 的 `dsh-fish` 源才允许按检查点截断，整文件替换还需二次确认。
 2. **审计正文默认不落盘。** 时间线是内存缓存，检查点是唯一会复制日记正文的持久化位置。
 3. **检查点用压缩快照 + 内容寻址去重。** 不做复杂的 diff 链；用保留策略与单文件上限控制磁盘。
 4. **默认规则只含客观项。** PII 与密钥默认开启；敏感/争议话题词表默认关闭，由用户显式启用。
@@ -105,18 +105,19 @@ DSH 生态里的“养鱼”已经分成人格生长、渠道接入、状态持�
 | `maxAgeDays` | 90 | 检查点保留天数 |
 | `maxFileBytes` | 8 MiB | 单文件快照上限；超过则跳过该文件并告警 |
 
-压缩快照按内容寻址去重；只追加事件流只记录哈希，不复制正文。固定（pin）的检查点不自动删除。完整计算见技术方案附录 C。
+压缩快照按内容寻址去重；只追加事件流默认只记录哈希，不复制正文。显式开启 dsh-fish 回滚后会为受跟踪文件保存快照，以便按检查点恢复。固定（pin）的检查点不自动删除。完整计算见技术方案附录 C。
 
 ## 已知限制（v1）
 
 - **检查点只覆盖控制台运行期间。** 控制台未运行时的日记写入，重启后只能看到结果，无法恢复写入前状态；需要保护时请让它常驻。面板会显示保护起点。
 - **不做云同步、多人协作、自动内容审查。**
 - **Windows 没有 POSIX 权限位。** 自检显示“权限模型不适用/未知”，不会伪造 `0600` 结论。
-- **回滚能力取决于适配器。** 只追加事件流等唯一可信源永远不可回滚；面板会明确禁用并解释。
+- **回滚能力取决于适配器。** 只追加事件流等唯一可信源默认不可回滚；`dsh-fish` 只有在源配置里显式 `options.allowRestore: true` 时才开放检查点回滚，且必须先确认鱼插件已停用、`events.jsonl`/`home.json` 最近 30 秒内没有写入。
 - **`fish.json` 写回需要先停鱼插件。** `dsh-fishtank` 在内存中防抖保存，运行中外部写入可能被下一次保存覆盖；写回后请重载鱼插件。
 - **`dsh-fishtank` 不会自动触发检查点。** 它的日记/人格/记忆都在同一个 `fish.json` 里，角色是 `status`；需要手动创建检查点，或把它作为普通文件源并显式声明可回滚文件。
-- **`dsh-fish` 源严格只读。** 预设声明 `home.json`、`events.jsonl` 与 `diary/*.md` 均不可回滚、不可写回；检查点只记录哈希，不复制正文。它不修改 dsh-fish 插件本身，也不改变 `diary.visible` 等插件设置。
-- **`dsh-fish` 自动检查点只跟随日记写入。** `events.jsonl` 是只追加的唯一可信源，每轮对话和 `meta` 记账都会追加；如果逐条建点，会在几小时内产生数百个只有哈希的检查点并挤掉基线。启动基线、手动检查点仍会记录 `events.jsonl` 的哈希，需要审计某个事件时请手动建点。
+- **`dsh-fish` 默认严格只读。** 未设置 `options.allowRestore: true` 时，预设声明 `home.json`、`events.jsonl` 与 `diary/*.md` 均不可回滚、不可写回；检查点只记录哈希，不复制正文。它不修改 dsh-fish 插件本身，也不改变 `diary.visible` 等插件设置。
+- **`dsh-fish` 回滚是显式启用的高风险操作。** 开启后仍需勾选“我已停用 @ssamurias/dsh-fish 插件”；控制台会再检查 `events.jsonl` 与 `home.json` 的 mtime，最近 30 秒内变过就拒绝。回滚前自动快照当前 dsh-fish 状态；`events.jsonl` 只截断回检查点字节长度，整文件替换需要额外确认；成功后提示可以重新启用鱼插件。
+- **`dsh-fish` 自动检查点只跟随日记写入。** `events.jsonl` 是只追加的唯一可信源，每轮对话和 `meta` 记账都会追加；如果逐条建点，会在几小时内产生数百个只有哈希的检查点并挤掉基线。开启回滚后当前实现仍保持这一点，启动基线与手动检查点会为 `events.jsonl` 保存可回滚快照。
 - **日志轮转由 Host/部署负责。** API 错误码稳定；本项目没有独立的长期日志写入层，因此不额外维护日志轮转。
 - **JSONL 行偏移索引尚未实现。** 当前按文件读取，单文件 16 MiB、单源 5000 条上限；真实数据规模下无需增量索引。
 - **扫描上限仍通过源 `options` 配置。** 设置页已提供保留策略、HTTP 默认值、规则与触发角色，但未为扫描条目/字节上限提供独立表单。
@@ -188,6 +189,18 @@ config:
 
 换成真实鱼时，把 `location` 指向它的数据目录。当前适配器会自动识别 `fish.json`、`state.json`、`diary/*.jsonl`、`diary/*.md`、`river/events.jsonl`、`self.json`、`events.jsonl`；`dsh-fishtank` 使用 `options.preset: fishtank`，`dsh-fish` 使用 `options.preset: dsh-fish`（数据目录默认 `~/.dsh-fish`）。保存配置后重载 `include:fishkeeper`。
 
+`dsh-fish` 默认只读。需要按检查点回滚时，在源配置里显式开启，并先停用 dsh-fish 插件：
+
+```yaml
+- id: my-dsh-fish
+  displayName: 大肥鱼
+  adapter: file
+  location: 'C:/Users/me/.dsh-fish'
+  options:
+    preset: dsh-fish
+    allowRestore: true
+```
+
 ### 开发构建
 
 Host 代码是纯 ESM，不需要构建。Client 源码在 `src/client.jsx`，构建命令：
@@ -214,7 +227,7 @@ node scripts/smoke-lock.mjs      # 双实例只读降级
 node scripts/smoke-watch.mjs     # 变更自动检查点与回滚
 node scripts/smoke-share.mjs     # 分享包剔除正文与凭据
 node scripts/smoke-fishtank.mjs  # dsh-fishtank 样本、写回、身份校验、HTTP 鉴权
-node scripts/smoke-dsh-fish.mjs  # dsh-fish 日记、事件流、home.json、只读与 fishtank 回归
+node scripts/smoke-dsh-fish.mjs  # dsh-fish 日记、事件流、home.json、只读、可选回滚与 fishtank 回归
 node scripts/smoke-real-dsh-fish.mjs  # 可选：对本机真实 ~/.dsh-fish 做复制目录端到端验证
 ```
 

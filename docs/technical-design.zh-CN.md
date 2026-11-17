@@ -50,7 +50,7 @@ Web Client（总览/时间线/检查点/迁移/自检）
 | TD-03 | 数据源配置以插件 `Config` 为唯一真源；面板编辑走 `configEditor`，保存后插件重载 | D-05 |
 | TD-04 | 前后端走 `/api/fishkeeper/*` 精确 Fetch 路由，不新开端口、不用 `webServer` 裸路由 | D-06 |
 | TD-05 | 每个数据源独立目录、独立锁、独立检查点；同一源单写者，后进者只读降级 | D-07 |
-| TD-06 | 回滚只写适配器声明的 `restorable` 文件；`events.jsonl` 等声明为唯一可信源的文件永不写 | D-01 |
+| TD-06 | 回滚只写适配器声明的 `restorable` 文件；`events.jsonl` 等唯一可信源默认不写；`dsh-fish` 的 `options.allowRestore: true` 例外，只允许截断回检查点字节长度，整文件替换需显式确认 | D-01 |
 | TD-07 | 不使用 `ctx.fs` 读取鱼数据；Host 直接用 `node:fs/promises`，因为 `ctx.fs` 可能是工作区沙箱作用域 | 安全与路径约束 |
 | TD-08 | 不使用 SQLite；索引为追加式 JSONL + 启动扫描修复，避免原生依赖与多进程写锁 | 可移植性 |
 | TD-09 | 前端不使用 iframe、不加载其他插件组件；用 React + 主题 token 自绘 | DSH UI 规范 |
@@ -424,7 +424,7 @@ export interface SourceAdapter {
 ### 5.2 能力协商
 
 - `describe()` 是唯一的能力来源。面板只展示适配器声明支持的功能。
-- `restore` 必须同时满足：`capabilities.restore === true`、目标文件 `restorable === true`、`appendOnly !== true`、源未被只读降级。四个条件缺一不可。需求单中的 `restore(target, checkpoint)` 在实现中收敛为 `restore(plan)`：plan 携带目标文件、确认令牌与 stale 覆盖标记，避免适配器各自解释“回滚什么”。
+- `restore` 必须同时满足：`capabilities.restore === true`、目标文件 `restorable === true`、源未被只读降级；普通文件不得是 `appendOnly`。`dsh-fish` 的 `options.allowRestore: true` 是唯一例外：`events.jsonl` 仍标记 `appendOnly`，但只允许截断回检查点字节长度；当前内容不再从检查点续写时才允许整文件替换，且必须显式确认。需求单中的 `restore(target, checkpoint)` 在实现中收敛为 `restore(plan)`：plan 携带目标文件、确认令牌与 stale 覆盖标记，避免适配器各自解释“回滚什么”。
 - `describe()` 失败时，数据源进入 `error` 状态，其他源不受影响。
 - 适配器版本变化导致能力变化时，面板显示“数据源能力已变化”，要求用户重新确认触发器。
 
@@ -513,6 +513,9 @@ export const PRESETS = {
   'dsh-fish': {
     status: { path: 'home.json', format: 'json' },
     diary: { path: 'diary/*.md', format: 'text' },
+    // restorable 默认为 false。源配置显式 allowRestore: true 时，三个文件
+    // 都变为 restorable，但 events.jsonl 仍是 appendOnly，回滚只允许截断或
+    // 经显式确认的整文件替换。
     memory: { path: 'events.jsonl', format: 'jsonl', restorable: false, appendOnly: true },
     fieldMap: { /* ... */ },
   },
@@ -995,6 +998,8 @@ interface RestorePlan {
 }
 ```
 
+> `dsh-fish` 的 append-only 计划项额外返回 `appendOnly: true`、`mode: 'truncate' | 'replace' | 'unchanged'` 与 `truncateBytes`；`mode: 'replace'` 同时 `stale: true`，必须带 `overrideStale` 才能执行。
+
 **执行**：
 
 1. 校验 `confirmToken`、源锁、只读状态；计划中存在 `stale` 文件时，请求必须带 `overrideStale: true`，否则返回 `fishkeeper/restore-stale`。
@@ -1014,7 +1019,8 @@ interface RestorePlan {
 **不变量**：
 
 - 只写 `plan.files[].action === 'restore'` 的路径；路径来自 manifest，不接受客户端传任意路径。
-- 不写 `appendOnly`、`restorable: false`、未在 manifest 中出现的文件。
+- 不写 `restorable: false`、未在 manifest 中出现的文件。普通文件不写 `appendOnly`；`dsh-fish` 的 `appendOnly` 文件只做两件事：`mode: 'truncate'` 时截断到检查点字节长度，`mode: 'replace'` 时经显式确认后整文件替换。
+- `dsh-fish` 回滚前必须收到用户对“我已停用 @ssamurias/dsh-fish 插件”的显式确认；`events.jsonl` 与 `home.json` 的 mtime 在最近 30 秒内变过时拒绝回滚，作为兜底。
 - 不在源目录创建除临时文件外的任何文件；临时文件在失败时删除。
 - 回滚前后都对目标做哈希；结果页展示哈希，而不是只说“成功”。
 

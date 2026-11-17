@@ -2,13 +2,14 @@ import { promises as fsp } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { randomBytes } from 'node:crypto'
+import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
 import { createAdapter } from '../lib/sources.js'
 import { DEFAULT_RULES, normalizeRules, scanText } from '../lib/rules.js'
 import { listMatchingFiles } from '../lib/util.js'
 import { CheckpointManager } from '../lib/checkpoints.js'
 
-const demo = new URL('../demo/fish-a', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/u, '$1')
+const demo = fileURLToPath(new URL('../demo/fish-a', import.meta.url))
 const temp = join(tmpdir(), `fishkeeper-smoke-${randomBytes(4).toString('hex')}`)
 await fsp.cp(demo, temp, { recursive: true })
 // Windows editors often add a UTF-8 BOM; the status reader must tolerate it.

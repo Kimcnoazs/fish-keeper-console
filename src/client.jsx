@@ -481,6 +481,7 @@ function CheckpointsTab({ t, sources, notify }) {
   const [restorePlan, setRestorePlan] = useState(undefined)
   const [restoreConfirmed, setRestoreConfirmed] = useState(false)
   const [overrideStale, setOverrideStale] = useState(false)
+  const [pluginStopped, setPluginStopped] = useState(false)
   const [restoreResult, setRestoreResult] = useState(undefined)
   const [busy, setBusy] = useState(false)
 
@@ -522,6 +523,7 @@ function CheckpointsTab({ t, sources, notify }) {
     setDiffPath(undefined)
     setRestorePlan(undefined)
     setRestoreResult(undefined)
+    setPluginStopped(false)
   }, [sourceId])
 
   const select = async item => {
@@ -578,6 +580,7 @@ function CheckpointsTab({ t, sources, notify }) {
       setRestorePlan(plan)
       setRestoreConfirmed(false)
       setOverrideStale(false)
+      setPluginStopped(false)
       setRestoreResult(undefined)
     } catch (requestError) {
       setError(requestError)
@@ -599,6 +602,7 @@ function CheckpointsTab({ t, sources, notify }) {
           confirmToken: restorePlan.confirmToken,
           dryRun: false,
           overrideStale,
+          pluginStopped,
         },
       })
       setRestoreResult(result)
@@ -729,6 +733,12 @@ function CheckpointsTab({ t, sources, notify }) {
         <Modal title={t('checkpoints.restoreTitle')} onClose={() => setRestorePlan(undefined)} t={t}>
           <p className="fk-warning">{t('checkpoints.restoreWarning')}</p>
           {restorePlan.files.some(file => file.stale) && <p className="fk-warning">{t('checkpoints.staleWarning')}</p>}
+          {restorePlan.requiresPluginStopped && (
+            <label className="fk-check">
+              <input type="checkbox" checked={pluginStopped} onChange={event => setPluginStopped(event.target.checked)} />
+              <span>{t('checkpoints.pluginStoppedConfirm')}</span>
+            </label>
+          )}
           <ul className="fk-plan-list">
             {restorePlan.files.map(file => (
               <li key={file.path}>
@@ -750,7 +760,7 @@ function CheckpointsTab({ t, sources, notify }) {
           )}
           <div className="fk-modal-actions">
             <button type="button" className="fk-btn" onClick={() => setRestorePlan(undefined)}>{t('action.cancel')}</button>
-            <button type="button" className="fk-btn" disabled={!restoreConfirmed || busy} onClick={() => void executeRestore()}>
+            <button type="button" className="fk-btn" disabled={!restoreConfirmed || busy || (restorePlan.requiresPluginStopped && !pluginStopped)} onClick={() => void executeRestore()}>
               {t('action.restore')}
             </button>
           </div>
@@ -758,6 +768,7 @@ function CheckpointsTab({ t, sources, notify }) {
             <div className="fk-success">
               <div>{t('checkpoints.restoreDone', { count: restoreResult.restored ?? 0 })}</div>
               {restoreResult.safetyCheckpointId && <div className="fk-muted">{t('checkpoints.safety')}</div>}
+              {restoreResult.reenablePlugin && <div>{t('checkpoints.restoreReenable')}</div>}
             </div>
           )}
         </Modal>
