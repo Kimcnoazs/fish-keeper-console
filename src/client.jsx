@@ -137,6 +137,7 @@ function FishKeeperPage(props) {
             loading={loading}
             onOpenTimeline={() => setTab('timeline')}
             onOpenCheckpoints={() => setTab('checkpoints')}
+            onOpenSettings={() => setTab('settings')}
           />
         )}
         {tab === 'timeline' && <TimelineTab t={t} sources={sources} />}
@@ -150,7 +151,7 @@ function FishKeeperPage(props) {
   )
 }
 
-function OverviewTab({ t, overview, loading, onOpenTimeline, onOpenCheckpoints }) {
+function OverviewTab({ t, overview, loading, onOpenTimeline, onOpenCheckpoints, onOpenSettings }) {
   if (loading && !overview) {
     return (
       <div className="fk-grid">
@@ -165,6 +166,7 @@ function OverviewTab({ t, overview, loading, onOpenTimeline, onOpenCheckpoints }
         title={t('overview.emptyTitle')}
         body={t('overview.emptyBody')}
         hint={`sources:\\n  - id: fish-a\\n    displayName: 大肥鱼 A\\n    adapter: file\\n    location: C:/path/to/fish-a`}
+        action={<button type="button" className="fk-btn" onClick={onOpenSettings}>{t('action.configureSources')}</button>}
       />
     )
   }
@@ -202,11 +204,17 @@ function SourceCard({ t, source, onOpenTimeline, onOpenCheckpoints }) {
       {error ? (
         <div className="fk-source-error">
           <div className="fk-error-code">{error.code}</div>
-          <p>{error.message || t('overview.sourceError')}</p>
+          <p>{localizeError(t, error) || t('overview.sourceError')}</p>
         </div>
       ) : (
         <>
-          {source.warnings?.length > 0 && (
+          {source.warningCodes?.length > 0 ? (
+            <ul className="fk-warnings">
+              {source.warningCodes.map(warning => (
+                <li key={warning.code}>{t(`warning.${warning.code}`, warning.params ?? {})}</li>
+              ))}
+            </ul>
+          ) : source.warnings?.length > 0 && (
             <ul className="fk-warnings">
               {source.warnings.map((warning, index) => <li key={index}>{warning}</li>)}
             </ul>
@@ -290,6 +298,9 @@ function TimelineTab({ t, sources }) {
   const [items, setItems] = useState([])
   const [cursor, setCursor] = useState(undefined)
   const [loading, setLoading] = useState(true)
+  const [truncated, setTruncated] = useState(false)
+  const [parseErrors, setParseErrors] = useState(0)
+  const [problems, setProblems] = useState([])
   const [error, setError] = useState(undefined)
   const [detail, setDetail] = useState(undefined)
   const [revealing, setRevealing] = useState(false)
@@ -309,6 +320,9 @@ function TimelineTab({ t, sources }) {
       if (current !== requestId.current) return
       setItems(previous => reset ? data.items : [...previous, ...data.items])
       setCursor(data.nextCursor)
+      setTruncated(Boolean(data.truncated))
+      setParseErrors(Number(data.parseErrors ?? 0))
+      setProblems(Array.isArray(data.errors) ? data.errors : [])
       setError(undefined)
     } catch (requestError) {
       if (current === requestId.current) setError(requestError)
@@ -359,7 +373,10 @@ function TimelineTab({ t, sources }) {
       {error && <ErrorBox error={error} t={t} onRetry={() => void load(true)} />}
 
       {loading && items.length === 0 && <p className="fk-muted">{t('status.loading')}</p>}
-      {!loading && items.length === 0 && <Empty title={t('timeline.noItems')} body={t('timeline.truncated')} />}
+      {!loading && items.length === 0 && <Empty title={t('timeline.noItems')} />}
+      {parseErrors > 0 && <p className="fk-warning">{t('timeline.parseErrors', { count: parseErrors })}</p>}
+      {problems.length > 0 && <p className="fk-warning">{t('timeline.partialSources', { count: problems.length })}</p>}
+      {truncated && <p className="fk-hint">{t('timeline.truncated')}</p>}
 
       <ul className="fk-timeline">
         {items.map(item => (
@@ -369,7 +386,7 @@ function TimelineTab({ t, sources }) {
               <span className="fk-timeline-main">
                 <span className="fk-timeline-meta">
                   <span className="fk-chip">{item.sourceName}</span>
-                  <span className="fk-muted">{item.eventType ?? t(`kind.${item.kind}`)}</span>
+                  <span className="fk-muted">{item.eventType ? eventTypeLabel(t, item.eventType) : t(`kind.${item.kind}`)}</span>
                   {item.verdict && <span className="fk-muted">· {t(`verdict.${item.verdict}`)}</span>}
                   {item.channel && <span className="fk-muted">· {item.channel}</span>}
                   {item.day !== undefined && (
@@ -396,7 +413,7 @@ function TimelineTab({ t, sources }) {
           <div className="fk-detail-meta">
             <span className="fk-chip">{detail.sourceName}</span>
             <span>{t(`kind.${detail.kind}`)}</span>
-            {detail.eventType && <span className="fk-muted">· {detail.eventType}</span>}
+            {detail.eventType && <span className="fk-muted">· {eventTypeLabel(t, detail.eventType)}</span>}
             {detail.verdict && <span className="fk-muted">· {t(`verdict.${detail.verdict}`)}</span>}
             {detail.day !== undefined && (
               <span className="fk-muted">· {t('timeline.dayStage', { day: detail.day, stage: detail.stage ?? 1 })}</span>
@@ -434,7 +451,11 @@ function TimelineTab({ t, sources }) {
 }
 
 function CheckpointsTab({ t, sources, notify }) {
-  const [sourceId, setSourceId] = useState(sources[0]?.id ?? '')
+  const checkpointSources = sources.filter(source => (
+    source.status !== 'error' && source.capabilities?.checkpoint !== false
+  ))
+  const [sourceId, setSourceId] = useState(checkpointSources[0]?.id ?? '')
+  const selectedSource = checkpointSources.find(source => source.id === sourceId)
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [restoreSupported, setRestoreSupported] = useState(true)
@@ -450,7 +471,9 @@ function CheckpointsTab({ t, sources, notify }) {
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
-    if (!sourceId && sources[0]) setSourceId(sources[0].id)
+    if (sourceId && checkpointSources.some(source => source.id === sourceId)) return
+    if (checkpointSources[0]) setSourceId(checkpointSources[0].id)
+    else setSourceId('')
   }, [sources, sourceId])
 
   const load = async (id = sourceId) => {
@@ -478,6 +501,15 @@ function CheckpointsTab({ t, sources, notify }) {
 
   useEffect(() => { void load(sourceId) }, [sourceId])
 
+  useEffect(() => {
+    setDetail(undefined)
+    setSelectedId(undefined)
+    setDiff(undefined)
+    setDiffPath(undefined)
+    setRestorePlan(undefined)
+    setRestoreResult(undefined)
+  }, [sourceId])
+
   const select = async item => {
     setSelectedId(item.id)
     setRestorePlan(undefined)
@@ -487,8 +519,12 @@ function CheckpointsTab({ t, sources, notify }) {
     try {
       const data = await api(`/checkpoint?${new URLSearchParams({ id: item.id })}`)
       setDetail(data)
-      const first = (data.manifest.files ?? []).find(file => file.restorable && file.before)
+      // Hash-only checkpoints (dsh-fish) have no restorable file and no diff;
+      // select the first tracked file anyway so the pane explains the state
+      // instead of showing the "select a checkpoint" placeholder again.
+      const first = (data.manifest.files ?? [])[0]
       if (first) await loadDiff(item.id, first.path)
+      else setDiff({ path: undefined, patch: '', binary: true, added: 0, removed: 0 })
     } catch (requestError) {
       setError(requestError)
     }
@@ -509,7 +545,7 @@ function CheckpointsTab({ t, sources, notify }) {
     setBusy(true)
     try {
       await api('/checkpoint/create', { method: 'POST', body: { sourceId } })
-      notify(t('action.createCheckpoint'))
+      notify(t('checkpoints.created'))
       await load(sourceId)
     } catch (requestError) {
       setError(requestError)
@@ -589,14 +625,16 @@ function CheckpointsTab({ t, sources, notify }) {
     <div className="fk-panel">
       <div className="fk-toolbar">
         <select className="fk-select" value={sourceId} onChange={event => setSourceId(event.target.value)} aria-label={t('timeline.source')}>
-          {sources.map(source => <option key={source.id} value={source.id}>{source.displayName}</option>)}
+          {checkpointSources.map(source => <option key={source.id} value={source.id}>{source.displayName}</option>)}
         </select>
-        <button type="button" className="fk-btn" disabled={busy || !sourceId} onClick={() => void create()}>{t('action.createCheckpoint')}</button>
+        <button type="button" className="fk-btn" disabled={busy || !sourceId || selectedSource?.readOnly} onClick={() => void create()}>{t('action.createCheckpoint')}</button>
         <button type="button" className="fk-btn" onClick={() => void load(sourceId)}>{t('action.refresh')}</button>
+        {selectedSource?.readOnly && <span className="fk-muted">{t('status.readonly')}</span>}
       </div>
       {error && <ErrorBox error={error} t={t} onRetry={() => void load(sourceId)} />}
+      {checkpointSources.length === 0 && <Empty title={t('checkpoints.noSources')} body={t('checkpoints.createHint')} />}
       {loading && <p className="fk-muted">{t('status.loading')}</p>}
-      {!loading && items.length === 0 && <Empty title={t('checkpoints.empty')} body={t('checkpoints.createHint')} />}
+      {checkpointSources.length > 0 && !loading && items.length === 0 && <Empty title={t('checkpoints.empty')} body={t('checkpoints.createHint')} />}
       <div className="fk-split">
         <div className="fk-list">
           {items.map(item => (
@@ -630,10 +668,10 @@ function CheckpointsTab({ t, sources, notify }) {
                   <div className="fk-muted">{triggerLabel(t, detail.manifest.trigger?.kind)} · {formatTime(detail.manifest.createdAt)}</div>
                 </div>
                 <div className="fk-detail-actions">
-                  <button type="button" className="fk-btn" onClick={() => void pin()}>
+                  <button type="button" className="fk-btn" disabled={selectedSource?.readOnly} onClick={() => void pin()}>
                     {detail.manifest.pinned ? t('action.unpin') : t('action.pin')}
                   </button>
-                  <button type="button" className="fk-btn" onClick={() => void remove()}>{t('action.delete')}</button>
+                  <button type="button" className="fk-btn" disabled={selectedSource?.readOnly} onClick={() => void remove()}>{t('action.delete')}</button>
                 </div>
               </div>
               <div className="fk-file-list">
@@ -644,9 +682,9 @@ function CheckpointsTab({ t, sources, notify }) {
                     className={`fk-file ${diffPath === file.path ? 'is-selected' : ''}`}
                     onClick={() => void loadDiff(detail.manifest.id, file.path)}
                   >
-                    <span className="fk-file-role">{file.role}</span>
+                    <span className="fk-file-role">{t(`checkpoints.role.${file.role}`)}</span>
                     <span className="fk-file-path" title={file.path}>{file.path}</span>
-                    <span className={`fk-chip ${file.restorable ? 'fk-chip-ok' : ''}`}>{file.restorable ? 'restorable' : 'read-only'}</span>
+                    <span className={`fk-chip ${file.restorable ? 'fk-chip-ok' : ''}`}>{t(file.restorable ? 'checkpoints.restorable' : 'checkpoints.readOnly')}</span>
                   </button>
                 ))}
               </div>
@@ -661,7 +699,7 @@ function CheckpointsTab({ t, sources, notify }) {
                 <button
                   type="button"
                   className="fk-btn"
-                  disabled={busy || !restoreSupported || !(detail.manifest.files ?? []).some(file => file.restorable && file.before)}
+                  disabled={busy || selectedSource?.readOnly || !restoreSupported || !(detail.manifest.files ?? []).some(file => file.restorable && file.before)}
                   onClick={() => void startRestore()}
                 >
                   {t('action.restore')}
@@ -680,9 +718,9 @@ function CheckpointsTab({ t, sources, notify }) {
           <ul className="fk-plan-list">
             {restorePlan.files.map(file => (
               <li key={file.path}>
-                <span className={`fk-chip ${file.action === 'restore' ? 'fk-chip-warn' : ''}`}>{file.action}</span>
+                <span className={`fk-chip ${file.action === 'restore' ? 'fk-chip-warn' : ''}`}>{t(`checkpoints.action.${file.action}`)}</span>
                 <code>{file.path}</code>
-                {file.stale && <span className="fk-muted"> · stale</span>}
+                {file.stale && <span className="fk-muted"> · {t('checkpoints.stale')}</span>}
               </li>
             ))}
           </ul>
@@ -1124,6 +1162,13 @@ function SettingsTab({ t, notify }) {
               else delete base.preset
               update(index, { optionsText: JSON.stringify(base, null, 2) })
             }
+            const setAdapter = value => {
+              const base = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? { ...parsed } : {}
+              // The dsh-fish preset is a local-file layout; an HTTP source
+              // cannot read it. Drop the stale preset when switching adapters.
+              if (value === 'http' && base.preset === 'dsh-fish') delete base.preset
+              update(index, { adapter: value, optionsText: JSON.stringify(base, null, 2) })
+            }
             return (
               <div key={row.key} className="fk-source-row">
                 <div className="fk-form-row">
@@ -1137,7 +1182,7 @@ function SettingsTab({ t, notify }) {
                   </label>
                   <label className="fk-field">
                     <span>{t('settings.adapter')}</span>
-                    <select className="fk-select" value={row.adapter} onChange={event => update(index, { adapter: event.target.value })}>
+                    <select className="fk-select" value={row.adapter} onChange={event => setAdapter(event.target.value)}>
                       <option value="file">file</option>
                       <option value="http">http</option>
                     </select>
@@ -1147,7 +1192,7 @@ function SettingsTab({ t, notify }) {
                     <select className="fk-select" value={preset} onChange={event => setPreset(event.target.value)}>
                       <option value="">{t('settings.presetNone')}</option>
                       <option value="fishtank">{t('settings.presetFishtank')}</option>
-                      <option value="dsh-fish">{t('settings.presetDshFish')}</option>
+                      {row.adapter !== 'http' && <option value="dsh-fish">{t('settings.presetDshFish')}</option>}
                     </select>
                   </label>
                   <label className="fk-check fk-check-inline">
@@ -1200,9 +1245,7 @@ function RiskChips({ hits, t }) {
 }
 
 function ErrorBox({ error, t, onRetry }) {
-  const message = error?.code === 'fishkeeper/network'
-    ? t('error.network')
-    : error?.code && error?.message ? error.message : t('error.network')
+  const message = localizeError(t, error)
   return (
     <div className="fk-error-box" role="alert">
       <div>
@@ -1215,7 +1258,7 @@ function ErrorBox({ error, t, onRetry }) {
   )
 }
 
-function Empty({ title, body, hint }) {
+function Empty({ title, body, hint, action }) {
   return (
     <div className="fk-empty">
       <div className="fk-empty-art" aria-hidden="true">
@@ -1224,6 +1267,7 @@ function Empty({ title, body, hint }) {
       <h2>{title}</h2>
       {body && <p>{body}</p>}
       {hint && <pre className="fk-code">{hint}</pre>}
+      {action}
     </div>
   )
 }
@@ -1304,6 +1348,24 @@ function ruleLabel(t, ruleId) {
   const key = `rule.${ruleId}`
   const value = t(key)
   return value === key ? ruleId : value
+}
+
+function eventTypeLabel(t, type) {
+  const key = `eventType.${type}`
+  const value = t(key)
+  return value === key ? type : value
+}
+
+function localizeError(t, error) {
+  if (!error) return t('error.network')
+  if (error.code === 'fishkeeper/network') return t('error.network')
+  const short = String(error.code ?? '').replace(/^fishkeeper\//u, '')
+  if (short) {
+    const key = `error.code.${short}`
+    const value = t(key)
+    if (value !== key) return value
+  }
+  return error.message || t('error.generic')
 }
 
 const CSS = `

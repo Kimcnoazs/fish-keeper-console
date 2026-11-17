@@ -148,6 +148,44 @@ const unauthorized = await createAdapter(httpSource, {}, { credentials: { async 
 await assert.rejects(() => unauthorized.readStatus(), error => error.code === 'fishkeeper/source-unauthorized')
 server.close()
 
+// HTTP sources have no checkpoint store. The runtime must not create a lock
+// or an empty checkpoint directory for them, and the API must say so clearly.
+const httpRuntime = new ConsoleRuntime(ctx, {
+  dataRoot: join(temp, 'data-http'),
+  sources: [httpSource],
+})
+await httpRuntime.start()
+assert.equal(httpRuntime.sources.get('http').checkpoints, undefined)
+assert.equal(httpRuntime.sourceList()[0].capabilities.checkpoint, false)
+assert.throws(
+  () => httpRuntime.checkpoints('http'),
+  error => error.code === 'fishkeeper/checkpoints-unsupported',
+)
+await fsp.access(join(temp, 'data-http', 'locks', 'http.lock')).then(
+  () => assert.fail('HTTP source must not acquire a checkpoint lock'),
+  () => {},
+)
+await httpRuntime.dispose()
+
+// A malformed status file must surface as a source error, not an empty "ok"
+// card. Other sources in the same runtime keep working.
+const corruptRoot = join(temp, 'corrupt')
+await fsp.cp(join(workspace, 'demo', 'fishtank'), corruptRoot, { recursive: true })
+await fsp.writeFile(join(corruptRoot, 'fish.json'), '{"mood": "broken",')
+const corruptRuntime = new ConsoleRuntime(ctx, {
+  dataRoot: join(temp, 'data-corrupt'),
+  sources: [
+    { id: 'broken', displayName: '坏文件', adapter: 'file', location: corruptRoot, enabled: true, options: { preset: 'fishtank' } },
+    { id: 'healthy', displayName: '正常鱼', adapter: 'file', location: sourceRoot, enabled: true, options: { preset: 'fishtank' } },
+  ],
+})
+await corruptRuntime.start()
+const corruptOverview = await corruptRuntime.overview()
+assert.equal(corruptOverview.sources.find(source => source.id === 'broken').status, 'error')
+assert.equal(corruptOverview.sources.find(source => source.id === 'broken').error.code, 'fishkeeper/source-invalid')
+assert.equal(corruptOverview.sources.find(source => source.id === 'healthy').status, 'ok')
+await corruptRuntime.dispose()
+
 await fsp.rm(temp, { recursive: true, force: true })
 console.log(JSON.stringify({
   mood: tank.fish.mood,

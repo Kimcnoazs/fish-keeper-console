@@ -141,13 +141,13 @@ HTTP 预设配置：
 
 ## 8. dsh-fish（只读预设 `dsh-fish`）
 
-> 本节依据 `@ssamurias/dsh-fish@1.0.3` 的公开源码与 [`demo/dsh-fish/`](../demo/dsh-fish/) 合成样本校准；控制台不修改该插件或其数据。
+> 本节依据 `@ssamurias/dsh-fish` 1.0.2 / 1.0.3 的公开源码与 [`demo/dsh-fish/`](../demo/dsh-fish/) 合成样本校准；并用本机 1.0.2 的真实 `~/.dsh-fish` 做过只读端到端验证（2026-11-18）。控制台不修改该插件或其数据。
 
 ### 8.1 数据目录与文件
 
 | 项 | 值 |
 |---|---|
-| 插件包 | `@ssamurias/dsh-fish@1.0.3` |
+| 插件包 | `@ssamurias/dsh-fish` 1.0.2 / 1.0.3 |
 | 默认根目录 | `~/.dsh-fish`（可用 `DSH_FISH_HOME` 或 `~/.dsh-fish-location.json` 迁移指针覆盖） |
 | 受跟踪文件 | `home.json`、`events.jsonl`、`diary/YYYY-MM-DD.md` |
 | 不跟踪的派生文件 | `state.json`（由事件流重算）、`config.json`、`owner.json` |
@@ -156,6 +156,7 @@ HTTP 预设配置：
 - `home.json`：当前工作区/会话、`turns`（累计轮数）、`lastTurnAt` / `prevTurnAt`（最近两轮对话的毫秒时间戳）、`createdAt`、`wokeFor` 等。
 - `diary/YYYY-MM-DD.md`：一天一个文件；同日多次写入以 `\n\n---\n\n` 接在文件末尾，文件名是本地日期。
 - 日记正文不进入事件流；`state.json` 只是派生快照，控制台不把它当作状态源。
+- 真实数据目录还会有 `home/`（身份文档、RULES）、`out/`、`media/`、`keepsakes/`、`backups/`、`notes.json`、`inbox.md`、`talk-recent.json`、`config.json` 等文件/目录；控制台不跟踪它们，`status.dataBytes` 只统计上表三个受跟踪来源。
 
 ### 8.2 字段映射
 
@@ -179,15 +180,22 @@ HTTP 预设配置：
 
 - 本预设声明 `home.json`、`events.jsonl`、`diary/*.md` 全部 `restorable: false`，`capabilities.restore` 与 `capabilities.import` 都是 `false`。控制台只读取这些文件；检查点只记录哈希与大小。
 - `events.jsonl` 是唯一可信源，即使后续提供回滚也不会改写。
+- 自动检查点只跟随 `diary/*.md`。`events.jsonl` 每轮都会追加（包括 `meta` 记账），逐条建点会在几小时内产生数百个只有哈希的检查点；启动基线与手动检查点仍会记录它的当前哈希。
 - 控制台不读也不改 dsh-fish 的 `config.json` 或 `diary.visible`；它按文件读取日记，因此 dsh-fish 自己界面里是否展示日记不影响这里的读取结果。
+- `diary/YYYY-MM-DD.md` 与 `fish.json.diary[].date` 的纯日期按本地时区解析，不按 UTC 午夜；这样东八区不会显示成当天 08:00，负时区也不会掉到前一天。
 
 ### 8.4 样本与测试
 
 - 合成样本：[`demo/dsh-fish/`](../demo/dsh-fish/)
-- 冒烟测试：`node scripts/smoke-dsh-fish.mjs`。断言 Markdown 日记按文件名取日期、事件流 `type/day/stage/verdict`、`home.json` 的 `turns`/`lastTurnAt`、读取前后源目录哈希不变，并回归 `preset: fishtank`。
+- 冒烟测试：`node scripts/smoke-dsh-fish.mjs`。断言 Markdown 日记按本地日期取日期、事件流 `type/day/stage/verdict`、`home.json` 的 `turns`/`lastTurnAt`、启动基线与手动检查点、写入口探针、读取前后源目录哈希不变，并回归 `preset: fishtank`。
+- 真实数据脚本：`node scripts/smoke-real-dsh-fish.mjs`（或 `npm run test:real`）。复制真实目录后跑完整运行时，输出概览/时间线/日记/检查点计数，并对比复制目录哈希；无真实数据时跳过。
 - 界面证据（深色主题、1280×900、同一 `demo/dsh-fish` 数据源；“前”为 0.1.1 的 Client bundle，“后”为本 PR 重新构建的 bundle）：
   - 总览：[前](./screenshots/dsh-fish-before-overview.png) / [后](./screenshots/dsh-fish-after-overview.png)
   - 时间线：[前](./screenshots/dsh-fish-before-timeline.png) / [后](./screenshots/dsh-fish-after-timeline.png)
   - 数据源设置：[前](./screenshots/dsh-fish-before-settings.png) / [后](./screenshots/dsh-fish-after-settings.png)
+- 2026-11-18 自检的界面证据（浅色主题、1280×900、同一 `demo/dsh-fish` 数据源；“前”为 `main` @ `288d564`，“后”为本分支）：
+  - 总览：[前](./screenshots/self-audit/before-overview.png) / [后](./screenshots/self-audit/after-overview.png)
+  - 时间线：[前](./screenshots/self-audit/before-timeline.png) / [后](./screenshots/self-audit/after-timeline.png)
+  - 检查点：[前](./screenshots/self-audit/before-checkpoints.png) / [后](./screenshots/self-audit/after-checkpoints.png) / [后-详情](./screenshots/self-audit/after-checkpoint-detail.png)
 
 > 本文件是非官方兼容说明，不包含 `dsh-fishtank` 或 `dsh-fish` 的代码，也不代表其作者对本项目的背书。相关名称归其作者所有。

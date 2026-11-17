@@ -44,6 +44,7 @@
   },
   "scripts": {
     "test": "node scripts/smoke-host.mjs && node scripts/smoke-runtime.mjs && node scripts/smoke-api.mjs && node scripts/smoke-lock.mjs && node scripts/smoke-watch.mjs && node scripts/smoke-share.mjs && node scripts/smoke-fishtank.mjs && node scripts/smoke-dsh-fish.mjs",
+    "test:real": "node scripts/smoke-real-dsh-fish.mjs",
     "wrap:client": "node scripts/wrap-client.mjs"
   }
 }

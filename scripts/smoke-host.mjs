@@ -10,6 +10,11 @@ import { CheckpointManager } from '../lib/checkpoints.js'
 const demo = new URL('../demo/fish-a', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/u, '$1')
 const temp = join(tmpdir(), `fishkeeper-smoke-${randomBytes(4).toString('hex')}`)
 await fsp.cp(demo, temp, { recursive: true })
+// Windows editors often add a UTF-8 BOM; the status reader must tolerate it.
+const fishJson = join(temp, 'fish.json')
+await fsp.writeFile(fishJson, `\uFEFF${await fsp.readFile(fishJson, 'utf8')}`)
+// A damaged JSONL line must be counted and surfaced, not silently dropped.
+await fsp.appendFile(join(temp, 'diary', '2026-11-11.jsonl'), '{not valid json\n')
 
 const source = { id: 'demo-a', displayName: 'Aurora', adapter: 'file', location: temp, enabled: true, options: {} }
 const adapter = await createAdapter(source)
@@ -19,6 +24,7 @@ const diary = await adapter.readDiary()
 const external = await adapter.readExternalEvents()
 assert.equal(description.capabilities.diary, true)
 assert.ok(diary.items.length >= 5, `diary entries: ${diary.items.length}`)
+assert.equal(diary.skipped, 1, 'malformed JSONL line is reported')
 assert.ok(diary.items.some(entry => entry.text.includes('aurora@example.com')))
 assert.ok(external.items.length >= 3)
 assert.ok(status.latestDiary?.text)
