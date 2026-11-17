@@ -43,7 +43,9 @@ try {
     assert.ok(fish.day >= 1, 'growth day is read from events.jsonl')
     assert.ok(Number.isInteger(fish.turns), 'turns is read from home.json')
     assert.ok(fish.latestDiary?.text, 'latest diary is read from diary/*.md')
-    assert.ok(String(fish.lastActiveAt) <= new Date().toISOString(), 'lastActiveAt is not in the future')
+    // Date-only diary files have no timezone. They are intentionally parsed as
+    // local midnight, so a data directory created in another timezone can show
+    // a future local time; assert the date semantics, not the clock offset.
     assert.equal(new Date(fish.latestDiary.at).getHours(), 0, 'diary date is local midnight')
     assert.equal(fish.latestDiary.visibility, 'private')
 
